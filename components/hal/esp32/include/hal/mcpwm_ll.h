@@ -76,7 +76,7 @@ STATIC_HAL_REG_CHECK(MCPWM, MCPWM_LL_INTR_CAP2, MCPWM_CAP2_INT_RAW);
  */
 static inline mcpwm_intr_t mcpwm_ll_get_intr(mcpwm_dev_t *mcpwm)
 {
-    return mcpwm->int_raw.val;
+    return (mcpwm_intr_t)mcpwm->int_raw.val;
 }
 
 /**
@@ -516,6 +516,7 @@ static inline void mcpwm_ll_set_deadtime_mode(mcpwm_dev_t *mcpwm,
     MCPWM_DT0_A_OUTBYPASS_M | MCPWM_DT0_B_OUTBYPASS_M)
 
     static uint32_t deadtime_mode_settings[MCPWM_DEADTIME_TYPE_MAX] = {
+        [MCPWM_DEADTIME_BYPASS] =               0b110000000 << MCPWM_DT0_DEB_MODE_S,
         [MCPWM_BYPASS_RED] =                    0b010010000 << MCPWM_DT0_DEB_MODE_S,
         [MCPWM_BYPASS_FED] =                    0b100000000 << MCPWM_DT0_DEB_MODE_S,
         [MCPWM_ACTIVE_HIGH_MODE] =              0b000010000 << MCPWM_DT0_DEB_MODE_S,
@@ -524,7 +525,6 @@ static inline void mcpwm_ll_set_deadtime_mode(mcpwm_dev_t *mcpwm,
         [MCPWM_ACTIVE_LOW_COMPLIMENT_MODE] =    0b000101000 << MCPWM_DT0_DEB_MODE_S,
         [MCPWM_ACTIVE_RED_FED_FROM_PWMXA] =     0b000000011 << MCPWM_DT0_DEB_MODE_S,
         [MCPWM_ACTIVE_RED_FED_FROM_PWMXB] =     0b000001011 << MCPWM_DT0_DEB_MODE_S,
-        [MCPWM_DEADTIME_BYPASS] =               0b110000000 << MCPWM_DT0_DEB_MODE_S,
     };
     mcpwm->channel[op].db_cfg.val =
         (mcpwm->channel[op].db_cfg.val & (~MCPWM_LL_DEADTIME_REG_MASK)) | deadtime_mode_settings[mode];
@@ -727,7 +727,7 @@ static inline void mcpwm_ll_capture_set_prescale(mcpwm_dev_t *mcpwm, int cap_sig
  */
 static inline mcpwm_intr_t mcpwm_ll_get_cap_intr_def(int bit)
 {
-    return BIT(bit+MCPWM_CAP0_INT_RAW_S);
+    return (mcpwm_intr_t)BIT(bit+MCPWM_CAP0_INT_RAW_S);
 }
 
 #ifdef __cplusplus

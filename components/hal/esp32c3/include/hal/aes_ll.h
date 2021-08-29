@@ -47,7 +47,7 @@ static inline uint8_t aes_ll_write_key(const uint8_t *key, size_t key_word_len)
     volatile uint8_t key_in_hardware = 0;
     uint32_t *key_words = (uint32_t *)key;
 
-    for (int i = 0; i < key_word_len; i++) {
+    for (size_t i = 0; i < key_word_len; i++) {
         REG_WRITE(AES_KEY_BASE + i * 4, *(key_words + i));
         key_in_hardware += 4;
     }
@@ -126,7 +126,7 @@ static inline void aes_ll_start_transform(void)
  */
 static inline esp_aes_state_t aes_ll_get_state(void)
 {
-    return REG_READ(AES_STATE_REG);
+    return (esp_aes_state_t)REG_READ(AES_STATE_REG);
 }
 
 

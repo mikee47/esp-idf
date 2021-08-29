@@ -43,7 +43,8 @@ extern "C" {
  */
 static inline void pcnt_ll_set_edge_mode(pcnt_dev_t *hw, pcnt_unit_t unit, pcnt_channel_t channel, pcnt_count_mode_t pos_mode, pcnt_count_mode_t neg_mode)
 {
-    typeof(hw->conf_unit[unit].conf0) conf0_reg = hw->conf_unit[unit].conf0;
+    typeof(hw->conf_unit[unit].conf0) conf0_reg;
+    conf0_reg.val = hw->conf_unit[unit].conf0.val;
     if (channel == 0) {
         conf0_reg.ch0_pos_mode = pos_mode;
         conf0_reg.ch0_neg_mode = neg_mode;
@@ -51,7 +52,7 @@ static inline void pcnt_ll_set_edge_mode(pcnt_dev_t *hw, pcnt_unit_t unit, pcnt_
         conf0_reg.ch1_pos_mode = pos_mode;
         conf0_reg.ch1_neg_mode = neg_mode;
     }
-    hw->conf_unit[unit].conf0 = conf0_reg;
+    hw->conf_unit[unit].conf0.val = conf0_reg.val;
 }
 
 /**
@@ -65,7 +66,8 @@ static inline void pcnt_ll_set_edge_mode(pcnt_dev_t *hw, pcnt_unit_t unit, pcnt_
  */
 static inline void pcnt_ll_set_level_mode(pcnt_dev_t *hw, pcnt_unit_t unit, pcnt_channel_t channel, pcnt_ctrl_mode_t hctrl_mode, pcnt_ctrl_mode_t lctrl_mode)
 {
-    typeof(hw->conf_unit[unit].conf0) conf0_reg = hw->conf_unit[unit].conf0;
+    typeof(hw->conf_unit[unit].conf0) conf0_reg;
+    conf0_reg.val = hw->conf_unit[unit].conf0.val;
     if (channel == 0) {
         conf0_reg.ch0_hctrl_mode = hctrl_mode;
         conf0_reg.ch0_lctrl_mode = lctrl_mode;
@@ -73,7 +75,7 @@ static inline void pcnt_ll_set_level_mode(pcnt_dev_t *hw, pcnt_unit_t unit, pcnt
         conf0_reg.ch1_hctrl_mode = hctrl_mode;
         conf0_reg.ch1_lctrl_mode = lctrl_mode;
     }
-    hw->conf_unit[unit].conf0 = conf0_reg;
+    hw->conf_unit[unit].conf0.val = conf0_reg.val;
 }
 
 /**
