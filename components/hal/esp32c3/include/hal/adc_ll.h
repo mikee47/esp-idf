@@ -332,13 +332,13 @@ static inline void adc_ll_digi_filter_set_factor(adc_digi_filter_idx_t idx, adc_
 static inline void adc_ll_digi_filter_get_factor(adc_digi_filter_idx_t idx, adc_digi_filter_t *filter)
 {
     if (idx == ADC_DIGI_FILTER_IDX0) {
-        filter->adc_unit = (APB_SARADC.filter_ctrl0.filter_channel0 >> 3) & 0x1;
-        filter->channel = APB_SARADC.filter_ctrl0.filter_channel0 & 0x7;
-        filter->mode = APB_SARADC.filter_ctrl1.filter_factor0;
+        filter->adc_unit = (adc_unit_t)((APB_SARADC.filter_ctrl0.filter_channel0 >> 3) & 0x1);
+        filter->channel = (adc_channel_t)(APB_SARADC.filter_ctrl0.filter_channel0 & 0x7);
+        filter->mode = (adc_digi_filter_mode_t)APB_SARADC.filter_ctrl1.filter_factor0;
     } else if (idx == ADC_DIGI_FILTER_IDX1) {
-        filter->adc_unit = (APB_SARADC.filter_ctrl0.filter_channel1 >> 3) & 0x1;
-        filter->channel = APB_SARADC.filter_ctrl0.filter_channel1 & 0x7;
-        filter->mode = APB_SARADC.filter_ctrl1.filter_factor1;
+        filter->adc_unit = (adc_unit_t)((APB_SARADC.filter_ctrl0.filter_channel1 >> 3) & 0x1);
+        filter->channel = (adc_channel_t)(APB_SARADC.filter_ctrl0.filter_channel1 & 0x7);
+        filter->mode = (adc_digi_filter_mode_t)APB_SARADC.filter_ctrl1.filter_factor1;
     }
 }
 

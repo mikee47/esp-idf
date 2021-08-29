@@ -24,6 +24,7 @@ extern "C" {
 #endif
 
 #include "soc/hwcrypto_reg.h"
+#include "soc/crypto_dma_reg.h"
 #include "soc/dport_reg.h"
 
 typedef enum {

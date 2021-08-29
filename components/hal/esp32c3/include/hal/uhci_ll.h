@@ -20,11 +20,15 @@
 #include <stdio.h>
 #include "uhci_types.h"
 #include "soc/uhci_struct.h"
-#include "soc/gdma_struct.h"
-
-#define UHCI_DMA_INDEX 0
 
 #define UHCI_LL_GET_HW(num) (((num) == 0) ? (&UHCI0) : (NULL))
+
+typedef enum {
+    UHCI_RX_BREAK_CHR_EOF = 0x1,
+    UHCI_RX_IDLE_EOF      = 0x2,
+    UHCI_RX_LEN_EOF       = 0x4,
+    UHCI_RX_EOF_MAX       = 0x7,
+} uhci_rxeof_cfg_t;
 
 static inline void uhci_ll_init(uhci_dev_t *hw)
 {
@@ -38,13 +42,15 @@ static inline void uhci_ll_init(uhci_dev_t *hw)
 
 static inline void uhci_ll_attach_uart_port(uhci_dev_t *hw, int uart_num)
 {
-    abort(); // TODO ESP32-C3 IDF-2117
+    hw->conf0.uart0_ce = (uart_num == 0)? 1: 0;
+    hw->conf0.uart1_ce = (uart_num == 1)? 1: 0;
 }
 
 static inline void uhci_ll_set_seper_chr(uhci_dev_t *hw, uhci_seper_chr_t *seper_char)
 {
     if (seper_char->sub_chr_en) {
-        typeof(hw->esc_conf0) esc_conf0_reg = hw->esc_conf0;
+        typeof(hw->esc_conf0) esc_conf0_reg;
+        esc_conf0_reg.val = hw->esc_conf0.val;
         esc_conf0_reg.seper_char = seper_char->seper_chr;
         esc_conf0_reg.seper_esc_char0 = seper_char->sub_chr1;
         esc_conf0_reg.seper_esc_char1 = seper_char->sub_chr2;
@@ -65,10 +71,13 @@ static inline void uhci_ll_get_seper_chr(uhci_dev_t *hw, uhci_seper_chr_t *seper
 
 static inline void uhci_ll_set_swflow_ctrl_sub_chr(uhci_dev_t *hw, uhci_swflow_ctrl_sub_chr_t *sub_ctr)
 {
-    typeof(hw->escape_conf) escape_conf_reg = hw->escape_conf;
+    typeof(hw->escape_conf) escape_conf_reg;
+    escape_conf_reg.val = hw->escape_conf.val;
     if (sub_ctr->flow_en == 1) {
-        typeof(hw->esc_conf2) esc_conf2_reg = hw->esc_conf2;
-        typeof(hw->esc_conf3) esc_conf3_reg = hw->esc_conf3;
+        typeof(hw->esc_conf2) esc_conf2_reg;
+        esc_conf2_reg.val = hw->esc_conf2.val;
+        typeof(hw->esc_conf3) esc_conf3_reg;
+        esc_conf3_reg.val = hw->esc_conf3.val;
         esc_conf2_reg.seq1 = sub_ctr->xon_chr;
         esc_conf2_reg.seq1_char0 = sub_ctr->xon_sub1;
         esc_conf2_reg.seq1_char1 = sub_ctr->xon_sub2;
@@ -88,20 +97,6 @@ static inline void uhci_ll_set_swflow_ctrl_sub_chr(uhci_dev_t *hw, uhci_swflow_c
         escape_conf_reg.rx_13_esc_en = 0;
     }
     hw->escape_conf.val = escape_conf_reg.val;
-}
-
-static inline void uhci_ll_dma_in_reset(uhci_dev_t *hw)
-{
-    (void)hw;
-    GDMA.channel[UHCI_DMA_INDEX].in.in_conf0.in_rst = 1;
-    GDMA.channel[UHCI_DMA_INDEX].in.in_conf0.in_rst = 0;
-}
-
-static inline void uhci_ll_dma_out_reset(uhci_dev_t *hw)
-{
-    (void)hw;
-    GDMA.channel[UHCI_DMA_INDEX].out.out_conf0.out_rst = 1;
-    GDMA.channel[UHCI_DMA_INDEX].out.out_conf0.out_rst = 0;
 }
 
 static inline void uhci_ll_enable_intr(uhci_dev_t *hw, uint32_t intr_mask)
@@ -124,41 +119,6 @@ static inline uint32_t uhci_ll_get_intr(uhci_dev_t *hw)
     return hw->int_st.val;
 }
 
-static inline void uhci_ll_set_rx_dma(uhci_dev_t *hw, uint32_t addr)
-{
-    (void)hw;
-    GDMA.channel[UHCI_DMA_INDEX].in.in_link.addr = addr;
-}
-
-static inline void uhci_ll_set_tx_dma(uhci_dev_t *hw, uint32_t addr)
-{
-    (void)hw;
-    GDMA.channel[UHCI_DMA_INDEX].out.out_link.addr = addr;
-}
-
-static inline void uhci_ll_rx_dma_start(uhci_dev_t *hw)
-{
-    (void)hw;
-    GDMA.channel[UHCI_DMA_INDEX].in.in_link.start = 1;
-}
-
-static inline void uhci_ll_tx_dma_start(uhci_dev_t *hw)
-{
-    (void)hw;
-    GDMA.channel[UHCI_DMA_INDEX].out.out_link.start = 1;
-}
-
-static inline void uhci_ll_rx_dma_stop(uhci_dev_t *hw)
-{
-    (void)hw;
-    GDMA.channel[UHCI_DMA_INDEX].in.in_link.stop = 1;
-}
-
-static inline void uhci_ll_tx_dma_stop(uhci_dev_t *hw)
-{
-    (void)hw;
-    GDMA.channel[UHCI_DMA_INDEX].out.out_link.stop = 1;
-}
 
 static inline void uhci_ll_set_eof_mode(uhci_dev_t *hw, uint32_t eof_mode)
 {
