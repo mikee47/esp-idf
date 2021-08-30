@@ -17,6 +17,10 @@
 #define HAL_SWAP32(d) __builtin_bswap32((d))
 #define HAL_SWAP64(d) __builtin_bswap64((d))
 
+#ifdef __cplusplus
+#define typeof(x) decltype(x)
+#endif
+
 /** @cond */    //Doxy command to hide preprocessor definitions from docs */
 
 // In case the compiler optimise a 32bit instruction (e.g. s32i) into 8/16bit instruction with size optimization enabled
@@ -24,15 +28,20 @@
 // use these wrappers for manually read-modify-write with l32i and s32i
 
 // modify register as uint32_t
-#define HAL_FORCE_MODIFY_U32_REG_FIELD(base_reg, field, val)    \
-{                                                           \
-    typeof(base_reg) temp_reg = (base_reg);                 \
-    temp_reg.field = (val);                                 \
-    (base_reg) = temp_reg;                                  \
+#define HAL_FORCE_MODIFY_U32_REG_FIELD(base_reg, field, value) \
+{                                                              \
+    typeof(base_reg) temp_reg;                                 \
+    temp_reg.val = (base_reg).val;                             \
+    temp_reg.field = value;                                    \
+    base_reg.val = temp_reg.val;                               \
 }
 
 // read register as uint32_t
-#define HAL_FORCE_READ_U32_REG_FIELD(base_reg, field)      \
-( ((typeof(base_reg))((base_reg).val)).field )
+#define HAL_FORCE_READ_U32_REG_FIELD(base_reg, field) \
+  (__extension__({                                    \
+    typeof(base_reg) temp_reg;                        \
+    temp_reg.val = (base_reg).val;                    \
+    temp_reg.field;                                   \
+  }))
 
 /** @endcond */

@@ -166,7 +166,8 @@ FORCE_INLINE_ATTR void uart_ll_set_baudrate(uart_dev_t *hw, uint32_t baud)
 FORCE_INLINE_ATTR uint32_t uart_ll_get_baudrate(uart_dev_t *hw)
 {
     uint32_t sclk_freq = uart_ll_get_sclk_freq(hw);
-    uart_clkdiv_reg_t div_reg = hw->clkdiv;
+    uart_clkdiv_reg_t div_reg;
+    div_reg.val = hw->clkdiv.val;
     return ((sclk_freq << 4)) /
         (((div_reg.clkdiv << 4) | div_reg.clkdiv_frag) * (HAL_FORCE_READ_U32_REG_FIELD(hw->clk_conf, sclk_div_num) + 1));
 }
@@ -339,7 +340,7 @@ FORCE_INLINE_ATTR void uart_ll_set_stop_bits(uart_dev_t *hw, uart_stop_bits_t st
  */
 FORCE_INLINE_ATTR void uart_ll_get_stop_bits(uart_dev_t *hw, uart_stop_bits_t *stop_bit)
 {
-    *stop_bit = hw->conf0.stop_bit_num;
+    *stop_bit = (uart_stop_bits_t)hw->conf0.stop_bit_num;
 }
 
 /**
@@ -369,7 +370,7 @@ FORCE_INLINE_ATTR void uart_ll_set_parity(uart_dev_t *hw, uart_parity_t parity_m
 FORCE_INLINE_ATTR void uart_ll_get_parity(uart_dev_t *hw, uart_parity_t *parity_mode)
 {
     if (hw->conf0.parity_en) {
-        *parity_mode = 0X2 | hw->conf0.parity;
+        *parity_mode = (uart_parity_t)(0X2 | hw->conf0.parity);
     } else {
         *parity_mode = UART_PARITY_DISABLE;
     }
@@ -484,10 +485,10 @@ FORCE_INLINE_ATTR void uart_ll_get_hw_flow_ctrl(uart_dev_t *hw, uart_hw_flowcont
 {
     *flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
     if (hw->conf1.rx_flow_en) {
-        *flow_ctrl |= UART_HW_FLOWCTRL_RTS;
+        *flow_ctrl = (uart_hw_flowcontrol_t)(*flow_ctrl | UART_HW_FLOWCTRL_RTS);
     }
     if (hw->conf0.tx_flow_en) {
-        *flow_ctrl |= UART_HW_FLOWCTRL_CTS;
+        *flow_ctrl = (uart_hw_flowcontrol_t)(*flow_ctrl | UART_HW_FLOWCTRL_CTS);
     }
 }
 
@@ -743,7 +744,7 @@ FORCE_INLINE_ATTR uint32_t uart_ll_get_wakeup_thrd(uart_dev_t *hw)
  */
 FORCE_INLINE_ATTR void uart_ll_get_data_bit_num(uart_dev_t *hw, uart_word_length_t *data_bit)
 {
-    *data_bit = hw->conf0.bit_num;
+    *data_bit = (uart_word_length_t)hw->conf0.bit_num;
 }
 
 /**
@@ -806,7 +807,8 @@ FORCE_INLINE_ATTR void uart_ll_set_loop_back(uart_dev_t *hw, bool loop_back_en)
  */
 FORCE_INLINE_ATTR void uart_ll_inverse_signal(uart_dev_t *hw, uint32_t inv_mask)
 {
-    uart_conf0_reg_t conf0_reg = hw->conf0;
+    uart_conf0_reg_t conf0_reg;
+    conf0_reg.val = hw->conf0.val;
     conf0_reg.irda_tx_inv = (inv_mask & UART_SIGNAL_IRDA_TX_INV) ? 1 : 0;
     conf0_reg.irda_rx_inv = (inv_mask & UART_SIGNAL_IRDA_RX_INV) ? 1 : 0;
     conf0_reg.rxd_inv = (inv_mask & UART_SIGNAL_RXD_INV) ? 1 : 0;
