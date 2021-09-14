@@ -266,16 +266,24 @@ static inline void print_cache_err_details(const void *f)
 }
 
 #if CONFIG_ESP_SYSTEM_MEMPROT_FEATURE
+#define MEMPROT_OP_INVALID 0xFFFFFFFF
 static inline void print_memprot_err_details(const void *f)
 {
     uint32_t *fault_addr;
     uint32_t op_type, op_subtype;
-    mem_type_prot_t mem_type = esp_memprot_get_active_intr_memtype();
-    esp_memprot_get_fault_status( mem_type, &fault_addr, &op_type, &op_subtype );
+    char *operation_type;
 
-    char *operation_type = "Write";
-    if ( op_type == 0 ) {
-        operation_type = (mem_type == MEMPROT_IRAM0_SRAM && op_subtype == 0) ? "Instruction fetch" : "Read";
+    mem_type_prot_t mem_type = esp_memprot_get_active_intr_memtype();
+    if(mem_type == MEMPROT_NONE) {
+        operation_type = "Unknown";
+        fault_addr = (uint32_t*)MEMPROT_OP_INVALID;
+    } else {
+        esp_memprot_get_fault_status( mem_type, &fault_addr, &op_type, &op_subtype );
+
+        operation_type = "Write";
+        if ( op_type == 0 ) {
+            operation_type = (mem_type == MEMPROT_IRAM0_SRAM && op_subtype == 0) ? "Instruction fetch" : "Read";
+        }
     }
 
     panic_print_str( operation_type );
