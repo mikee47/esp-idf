@@ -16,6 +16,10 @@
 
 #include "esp_log.h"
 
+#if defined(__cplusplus) && !defined(typeof)
+#define typeof(x) decltype(x)
+#endif
+
 // platform related stuff
 
 #define HAL_SWAP32(word) __builtin_bswap32(word)
