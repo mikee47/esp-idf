@@ -23,6 +23,7 @@
 #include "sdkconfig.h"
 #include "esp_flash_internal.h"
 #include "spi_flash_defs.h"
+#include "esp_rom_caps.h"
 
 static const char TAG[] = "spi_flash";
 
@@ -215,6 +216,16 @@ esp_err_t IRAM_ATTR esp_flash_init(esp_flash_t *chip)
         return err;
     }
 
+    if (chip->chip_drv->get_chip_caps == NULL) {
+        // chip caps get failed, pass the flash capability check.
+        ESP_EARLY_LOGW(TAG, "get_chip_caps function pointer hasn't been initialized");
+    } else {
+        if (((chip->chip_drv->get_chip_caps(chip) & SPI_FLASH_CHIP_CAP_32MB_SUPPORT) == 0) && (size > (16 *1024 * 1024))) {
+            ESP_EARLY_LOGW(TAG, "Detected flash size > 16 MB, but access beyond 16 MB is not supported for this flash model yet.");
+            size = (16 * 1024 * 1024);
+        }
+    }
+
     ESP_LOGI(TAG, "flash io: %s", io_mode_str[chip->read_mode]);
     err = rom_spiflash_api_funcs->start(chip);
     if (err != ESP_OK) {
@@ -358,6 +369,7 @@ esp_err_t IRAM_ATTR esp_flash_get_size(esp_flash_t *chip, uint32_t *out_size)
     err = chip->chip_drv->detect_size(chip, &detect_size);
     if (err == ESP_OK) {
         chip->size = detect_size;
+        *out_size = chip->size;
     }
     return rom_spiflash_api_funcs->end(chip, err);
 }
@@ -410,6 +422,9 @@ esp_err_t IRAM_ATTR esp_flash_erase_region(esp_flash_t *chip, uint32_t start, ui
     if ((start % chip->chip_drv->sector_size) != 0 || (len % chip->chip_drv->sector_size) != 0) {
         // Can only erase multiples of the sector size, starting at sector boundary
         return ESP_ERR_INVALID_ARG;
+    }
+    if (len == 0) {
+        return ESP_OK;
     }
 
     err = ESP_OK;
@@ -473,6 +488,8 @@ esp_err_t IRAM_ATTR esp_flash_erase_region(esp_flash_t *chip, uint32_t start, ui
             len_remain -= sector_size;
         }
 
+        assert(len_remain < len);
+
         if (err != ESP_OK || len_remain == 0) {
             // On ESP32, the cache re-enable is in the end() function, while flush_cache should
             // happen when the cache is still disabled on ESP32. Break before the end() function and
@@ -490,6 +507,28 @@ esp_err_t IRAM_ATTR esp_flash_erase_region(esp_flash_t *chip, uint32_t start, ui
 
     return rom_spiflash_api_funcs->flash_end_flush_cache(chip, err, bus_acquired, start, len);
 }
+
+#endif // !CONFIG_SPI_FLASH_ROM_IMPL
+
+#if defined(CONFIG_SPI_FLASH_ROM_IMPL) && ESP_ROM_HAS_ERASE_0_REGION_BUG
+
+/* ROM esp_flash_erase_region implementation doesn't handle 0 erase size correctly.
+ * Check the size and call ROM function instead of overriding it completely.
+ * The behavior is slightly different from esp_flash_erase_region above, thought:
+ * here the check for 0 size is done first, but in esp_flash_erase_region the check is
+ * done after the other arguments are checked.
+ */
+extern esp_err_t rom_esp_flash_erase_region(esp_flash_t *chip, uint32_t start, uint32_t len);
+esp_err_t IRAM_ATTR esp_flash_erase_region(esp_flash_t *chip, uint32_t start, uint32_t len)
+{
+    if (len == 0) {
+        return ESP_OK;
+    }
+    return rom_esp_flash_erase_region(chip, start, len);
+}
+#endif // defined(CONFIG_SPI_FLASH_ROM_IMPL) && ESP_ROM_HAS_ERASE_0_REGION_BUG
+
+#ifndef CONFIG_SPI_FLASH_ROM_IMPL
 
 esp_err_t IRAM_ATTR esp_flash_get_chip_write_protect(esp_flash_t *chip, bool *out_write_protected)
 {
@@ -619,13 +658,13 @@ esp_err_t IRAM_ATTR esp_flash_set_protected_region(esp_flash_t *chip, const esp_
 
 esp_err_t IRAM_ATTR esp_flash_read(esp_flash_t *chip, void *buffer, uint32_t address, uint32_t length)
 {
-    if (length == 0) {
-        return ESP_OK;
-    }
     esp_err_t err = rom_spiflash_api_funcs->chip_check(&chip);
     VERIFY_CHIP_OP(read);
     if (buffer == NULL || address > chip->size || address+length > chip->size) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (length == 0) {
+        return ESP_OK;
     }
 
     //when the cache is disabled, only the DRAM can be read, check whether we need to receive in another buffer in DRAM.
@@ -686,14 +725,14 @@ esp_err_t IRAM_ATTR esp_flash_read(esp_flash_t *chip, void *buffer, uint32_t add
 
 esp_err_t IRAM_ATTR esp_flash_write(esp_flash_t *chip, const void *buffer, uint32_t address, uint32_t length)
 {
-    if (length == 0) {
-        return ESP_OK;
-    }
     esp_err_t err = rom_spiflash_api_funcs->chip_check(&chip);
     VERIFY_CHIP_OP(write);
     CHECK_WRITE_ADDRESS(chip, address, length);
     if (buffer == NULL || address > chip->size || address+length > chip->size) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (length == 0) {
+        return ESP_OK;
     }
 
     //when the cache is disabled, only the DRAM can be read, check whether we need to copy the data first
@@ -737,6 +776,7 @@ esp_err_t IRAM_ATTR esp_flash_write(esp_flash_t *chip, const void *buffer, uint3
 
         err = chip->chip_drv->write(chip, write_buf, write_addr, write_len);
         len_remain -= write_len;
+        assert(len_remain < length);
 
         if (err != ESP_OK || len_remain == 0) {
             // On ESP32, the cache re-enable is in the end() function, while flush_cache should
@@ -837,6 +877,14 @@ IRAM_ATTR esp_err_t esp_flash_set_io_mode(esp_flash_t* chip, bool qe)
 esp_err_t esp_flash_suspend_cmd_init(esp_flash_t* chip)
 {
     ESP_EARLY_LOGW(TAG, "Flash suspend feature is enabled");
+    if (chip->chip_drv->get_chip_caps == NULL) {
+        // chip caps get failed, pass the flash capability check.
+        ESP_EARLY_LOGW(TAG, "get_chip_caps function pointer hasn't been initialized");
+    } else {
+        if ((chip->chip_drv->get_chip_caps(chip) & SPI_FLASH_CHIP_CAP_SUSPEND) == 0) {
+            ESP_EARLY_LOGW(TAG, "Suspend and resume may not supported for this flash model yet.");
+        }
+    }
     return chip->chip_drv->sus_setup(chip);
 }
 

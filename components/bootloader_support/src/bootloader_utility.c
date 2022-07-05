@@ -77,7 +77,9 @@
 #include "bootloader_utility.h"
 #include "bootloader_sha.h"
 #include "bootloader_console.h"
+#include "bootloader_soc.h"
 #include "esp_efuse.h"
+#include "esp_fault.h"
 
 static const char *TAG = "boot";
 
@@ -269,9 +271,16 @@ static esp_err_t write_otadata(esp_ota_select_entry_t *otadata, uint32_t offset,
 static bool check_anti_rollback(const esp_partition_pos_t *partition)
 {
 #ifdef CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK
-    esp_app_desc_t app_desc;
+    esp_app_desc_t app_desc = {};
     esp_err_t err = bootloader_common_get_partition_description(partition, &app_desc);
-    return err == ESP_OK && esp_efuse_check_secure_version(app_desc.secure_version) == true;
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get partition description %d", err);
+        return false;
+    }
+    bool sec_ver = esp_efuse_check_secure_version(app_desc.secure_version);
+    /* Anti FI check */
+    ESP_FAULT_ASSERT(sec_ver == esp_efuse_check_secure_version(app_desc.secure_version));
+    return sec_ver;
 #else
     return true;
 #endif
@@ -284,6 +293,8 @@ static void update_anti_rollback(const esp_partition_pos_t *partition)
     esp_err_t err = bootloader_common_get_partition_description(partition, &app_desc);
     if (err == ESP_OK) {
         esp_efuse_update_secure_version(app_desc.secure_version);
+    } else {
+        ESP_LOGE(TAG, "Failed to get partition description %d", err);
     }
 }
 
@@ -637,6 +648,12 @@ static void load_image(const esp_image_metadata_t *image_data)
     ESP_LOGI(TAG, "Disabling RNG early entropy source...");
     bootloader_random_disable();
 
+    /* Disable glitch reset after all the security checks are completed.
+     * Glitch detection can be falsely triggered by EMI interference (high RF TX power, etc)
+     * and to avoid such false alarms, disable it.
+     */
+    bootloader_ana_clock_glitch_reset_config(false);
+
     // copy loaded segments to RAM, set up caches for mapped segments, and start application
     unpack_load_app(image_data);
 }
@@ -843,22 +860,19 @@ esp_err_t bootloader_sha256_hex_to_str(char *out_str, const uint8_t *in_array_he
 
 void bootloader_debug_buffer(const void *buffer, size_t length, const char *label)
 {
-#if BOOT_LOG_LEVEL >= LOG_LEVEL_DEBUG
-    assert(length <= 128); // Avoid unbounded VLA size
+#if CONFIG_BOOTLOADER_LOG_LEVEL >= 4
     const uint8_t *bytes = (const uint8_t *)buffer;
-    char hexbuf[length * 2 + 1];
-    hexbuf[length * 2] = 0;
-    for (size_t i = 0; i < length; i++) {
-        for (int shift = 0; shift < 2; shift++) {
-            uint8_t nibble = (bytes[i] >> (shift ? 0 : 4)) & 0x0F;
-            if (nibble < 10) {
-                hexbuf[i * 2 + shift] = '0' + nibble;
-            } else {
-                hexbuf[i * 2 + shift] = 'a' + nibble - 10;
-            }
-        }
-    }
+    const size_t output_len = MIN(length, 128);
+    char hexbuf[128 * 2 + 1];
+
+    bootloader_sha256_hex_to_str(hexbuf, bytes, output_len);
+
+    hexbuf[output_len * 2] = '\0';
     ESP_LOGD(TAG, "%s: %s", label, hexbuf);
+#else
+    (void) buffer;
+    (void) length;
+    (void) label;
 #endif
 }
 

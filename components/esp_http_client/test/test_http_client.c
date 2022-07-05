@@ -127,7 +127,7 @@ TEST_CASE("Username and password will not reset if new absolute URL doesnot spec
     // esp_http_client_set_username sets new username and thus invalidates the original one
     // which we still reference in the local variable `value` (better forget it)
     value = NULL;
-    esp_http_client_set_password(client, USERNAME);
+    esp_http_client_set_password(client, (char *)USERNAME);  // Need to cast the string literal (argument is not a const char*)
     //checks if username is set or not
     r = esp_http_client_get_username(client, &value);
     TEST_ASSERT_EQUAL(ESP_OK, r);
@@ -138,5 +138,18 @@ TEST_CASE("Username and password will not reset if new absolute URL doesnot spec
     TEST_ASSERT_EQUAL(ESP_OK, r);
     //If password is set then value should not be NULL
     TEST_ASSERT_NOT_NULL(value);
+    esp_http_client_cleanup(client);
+}
+
+/**
+ * Test case to verify that, esp_http_client_init() should return NULL if configuration has url with empty hostname.
+ **/
+TEST_CASE("esp_http_client_init() should return NULL if configured with wrong url", "[ESP HTTP CLIENT]")
+{
+    esp_http_client_config_t config = {
+        .url = "//httpbin.org/post",
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    TEST_ASSERT_NULL(client);
     esp_http_client_cleanup(client);
 }

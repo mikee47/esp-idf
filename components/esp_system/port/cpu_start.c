@@ -23,7 +23,7 @@
 #include "esp_system.h"
 
 #include "esp_rom_uart.h"
-
+#include "esp_efuse.h"
 #include "esp_clk_internal.h"
 #include "esp_rom_efuse.h"
 #include "esp_rom_sys.h"
@@ -67,6 +67,7 @@
 #endif
 
 #include "bootloader_flash_config.h"
+#include "bootloader_flash.h"
 #include "esp_private/crosscore_int.h"
 #include "esp_flash_encrypt.h"
 
@@ -110,16 +111,15 @@ extern int _vector_table;
 
 static const char *TAG = "cpu_start";
 
-#if CONFIG_IDF_TARGET_ESP32
 #if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
 extern int _ext_ram_bss_start;
 extern int _ext_ram_bss_end;
 #endif
+
 #ifdef CONFIG_ESP32_IRAM_AS_8BIT_ACCESSIBLE_MEMORY
 extern int _iram_bss_start;
 extern int _iram_bss_end;
 #endif
-#endif // CONFIG_IDF_TARGET_ESP32
 
 #if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
 static volatile bool s_cpu_up[SOC_CPU_CORES_NUM] = { false };
@@ -130,6 +130,15 @@ static volatile bool s_resume_cores;
 
 // If CONFIG_SPIRAM_IGNORE_NOTFOUND is set and external RAM is not found or errors out on testing, this is set to false.
 bool g_spiram_ok = true;
+
+static void core_intr_matrix_clear(void)
+{
+    uint32_t core_id = cpu_hal_get_core_id();
+
+    for (int i = 0; i < ETS_MAX_INTR_SOURCE; i++) {
+        intr_matrix_set(core_id, i, ETS_INVALID_INUM);
+    }
+}
 
 #if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
 void startup_resume_other_cores(void)
@@ -163,6 +172,9 @@ void IRAM_ATTR call_start_cpu1(void)
 
     s_cpu_up[1] = true;
     ESP_EARLY_LOGI(TAG, "App cpu up.");
+
+    // Clear interrupt matrix for APP CPU core
+    core_intr_matrix_clear();
 
     //Take care putting stuff here: if asked, FreeRTOS will happily tell you the scheduler
     //has started, but it isn't active *on this CPU* yet.
@@ -234,16 +246,6 @@ static void start_other_core(void)
 }
 #endif // !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
 
-static void intr_matrix_clear(void)
-{
-    for (int i = 0; i < ETS_MAX_INTR_SOURCE; i++) {
-        intr_matrix_set(0, i, ETS_INVALID_INUM);
-#if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
-        intr_matrix_set(1, i, ETS_INVALID_INUM);
-#endif
-    }
-}
-
 /*
  * We arrive here after the bootloader finished loading the program from flash. The hardware is mostly uninitialized,
  * and the app CPU is in reset. We do have a stack, so we can do the initialization in C.
@@ -257,6 +259,13 @@ void IRAM_ATTR call_start_cpu0(void)
 #endif
 
 #ifdef __riscv
+    if (cpu_hal_is_debugger_attached()) {
+        /* Let debugger some time to detect that target started, halt it, enable ebreaks and resume.
+           500ms should be enough. */
+        for (uint32_t ms_num = 0; ms_num < 2; ms_num++) {
+            esp_rom_delay_us(100000);
+        }
+    }
     // Configure the global pointer register
     // (This should be the first thing IDF app does, as any other piece of code could be
     // relaxed by the linker to access something relative to __global_pointer$)
@@ -331,6 +340,10 @@ void IRAM_ATTR call_start_cpu0(void)
     Cache_Resume_DCache(0);
 #endif // CONFIG_IDF_TARGET_ESP32S3
 
+    if (esp_efuse_check_errors() != ESP_OK) {
+        esp_restart();
+    }
+
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3
     /* Configure the Cache MMU size for instruction and rodata in flash. */
     extern uint32_t Cache_Set_IDROM_MMU_Size(uint32_t irom_size, uint32_t drom_size);
@@ -343,7 +356,7 @@ void IRAM_ATTR call_start_cpu0(void)
     bootloader_init_mem();
 #if CONFIG_SPIRAM_BOOT_INIT
     if (esp_spiram_init() != ESP_OK) {
-#if CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2
 #if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
         ESP_EARLY_LOGE(TAG, "Failed to init external RAM, needed for external .bss segment");
         abort();
@@ -447,7 +460,8 @@ void IRAM_ATTR call_start_cpu0(void)
     // and default RTC-backed system time provider.
     g_startup_time = esp_rtc_get_time_us();
 
-    intr_matrix_clear();
+    // Clear interrupt matrix for PRO CPU core
+    core_intr_matrix_clear();
 
 #ifdef CONFIG_ESP_CONSOLE_UART
     uint32_t clock_hz = rtc_clk_apb_freq_get();
@@ -490,7 +504,7 @@ void IRAM_ATTR call_start_cpu0(void)
 
     extern void esp_rom_spiflash_attach(uint32_t, bool);
     esp_rom_spiflash_attach(esp_rom_efuse_get_flash_gpio_info(), false);
-    esp_rom_spiflash_unlock();
+    bootloader_flash_unlock();
 #else
     // This assumes that DROM is the first segment in the application binary, i.e. that we can read
     // the binary header through cache by accessing SOC_DROM_LOW address.

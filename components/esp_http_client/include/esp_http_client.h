@@ -117,6 +117,8 @@ typedef struct {
     const char                  *cert_pem;           /*!< SSL server certification, PEM format as string, if the client requires to verify server */
     const char                  *client_cert_pem;    /*!< SSL client certification, PEM format as string, if the server requires to verify client */
     const char                  *client_key_pem;     /*!< SSL client key, PEM format as string, if the server requires to verify client */
+    const char                  *client_key_password;      /*!< Client key decryption password string */
+    size_t                      client_key_password_len;   /*!< String length of the password pointed to by client_key_password */
     const char                  *user_agent;         /*!< The User Agent string to send with HTTP requests */
     esp_http_client_method_t    method;                   /*!< HTTP Method */
     int                         timeout_ms;               /*!< Network timeout in milliseconds */
@@ -131,6 +133,8 @@ typedef struct {
     bool                        is_async;                 /*!< Set asynchronous mode, only supported with HTTPS for now */
     bool                        use_global_ca_store;      /*!< Use a global ca_store for all the connections in which this bool is set. */
     bool                        skip_cert_common_name_check;    /*!< Skip any validation of server certificate CN field */
+    esp_err_t (*crt_bundle_attach)(void *conf);      /*!< Function pointer to esp_crt_bundle_attach. Enables the use of certification
+                                                          bundle for server verification, must be enabled in menuconfig */
     bool                        keep_alive_enable;   /*!< Enable keep-alive timeout */
     int                         keep_alive_idle;     /*!< Keep-alive idle time. Default is 5 (second) */
     int                         keep_alive_interval; /*!< Keep-alive interval time. Default is 5 (second) */
@@ -148,7 +152,9 @@ typedef enum {
     HttpStatus_MultipleChoices   = 300,
     HttpStatus_MovedPermanently  = 301,
     HttpStatus_Found             = 302,
+    HttpStatus_SeeOther          = 303,
     HttpStatus_TemporaryRedirect = 307,
+    HttpStatus_PermanentRedirect = 308,
 
     /* 4xx - Client Error */
     HttpStatus_BadRequest        = 400,

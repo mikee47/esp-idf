@@ -55,11 +55,13 @@ import ssl
 import subprocess
 import sys
 import tarfile
+import time
 import zipfile
 from collections import OrderedDict, namedtuple
 
 try:
     import typing  # noqa: F401
+    from typing import IO, Any, Callable, Optional, Tuple, Union  # noqa: F401
 except ImportError:
     pass
 
@@ -79,6 +81,7 @@ except ImportError:
 TOOLS_FILE = 'tools/tools.json'
 TOOLS_SCHEMA_FILE = 'tools/tools_schema.json'
 TOOLS_FILE_NEW = 'tools/tools.new.json'
+IDF_ENV_FILE = 'idf-env.json'
 TOOLS_FILE_VERSION = 1
 IDF_TOOLS_PATH_DEFAULT = os.path.join('~', '.espressif')
 UNKNOWN_VERSION = 'unknown'
@@ -100,6 +103,7 @@ PLATFORM_MACOS = 'macos'
 PLATFORM_LINUX32 = 'linux-i686'
 PLATFORM_LINUX64 = 'linux-amd64'
 PLATFORM_LINUX_ARM32 = 'linux-armel'
+PLATFORM_LINUX_ARMHF = 'linux-armhf'
 PLATFORM_LINUX_ARM64 = 'linux-arm64'
 
 
@@ -132,6 +136,7 @@ PLATFORM_FROM_NAME = {
     PLATFORM_LINUX_ARM32: PLATFORM_LINUX_ARM32,
     'Linux-arm': PLATFORM_LINUX_ARM32,
     'Linux-armv7l': PLATFORM_LINUX_ARM32,
+    PLATFORM_LINUX_ARMHF: PLATFORM_LINUX_ARMHF,
     PLATFORM_LINUX_ARM64: PLATFORM_LINUX_ARM64,
     'Linux-arm64': PLATFORM_LINUX_ARM64,
     'Linux-aarch64': PLATFORM_LINUX_ARM64,
@@ -364,20 +369,20 @@ def urlretrieve_ctx(url, filename, reporthook=None, data=None, context=None):
 # https://github.com/espressif/esp-idf/issues/3819#issuecomment-515167118
 # https://github.com/espressif/esp-idf/issues/4063#issuecomment-531490140
 # https://stackoverflow.com/a/43046729
-def rename_with_retry(path_from, path_to):
-    if sys.platform.startswith('win'):
-        retry_count = 100
-    else:
-        retry_count = 1
-
+def rename_with_retry(path_from, path_to):  # type: (str, str) -> None
+    retry_count = 20 if sys.platform.startswith('win') else 1
     for retry in range(retry_count):
         try:
             os.rename(path_from, path_to)
             return
-        except (OSError, WindowsError):       # WindowsError until Python 3.3, then OSError
+        except OSError:
+            msg = 'Rename {} to {} failed'.format(path_from, path_to)
             if retry == retry_count - 1:
+                fatal(msg + '. Antivirus software might be causing this. Disabling it temporarily could solve the issue.')
                 raise
-            warn('Rename {} to {} failed, retrying...'.format(path_from, path_to))
+            warn(msg + ', retrying...')
+            # Sleep before the next try in order to pass the antivirus check on Windows
+            time.sleep(0.5)
 
 
 def strip_container_dirs(path, levels):
@@ -479,7 +484,8 @@ OPTIONS_LIST = ['version_cmd',
                 'install',
                 'info_url',
                 'license',
-                'strip_container_dirs']
+                'strip_container_dirs',
+                'supported_targets']
 
 IDFToolOptions = namedtuple('IDFToolOptions', OPTIONS_LIST)
 
@@ -490,8 +496,9 @@ class IDFTool(object):
     INSTALL_ON_REQUEST = 'on_request'
     INSTALL_NEVER = 'never'
 
-    def __init__(self, name, description, install, info_url, license, version_cmd, version_regex, version_regex_replace=None,
+    def __init__(self, name, description, install, info_url, license, version_cmd, version_regex, supported_targets, version_regex_replace=None,
                  strip_container_dirs=0):
+        # type: (str, str, str, str, str, list[str], str, list[str], Optional[str], int) -> None
         self.name = name
         self.description = description
         self.versions = OrderedDict()  # type: typing.Dict[str, IDFToolVersion]
@@ -500,8 +507,8 @@ class IDFTool(object):
         if version_regex_replace is None:
             version_regex_replace = VERSION_REGEX_REPLACE_DEFAULT
         self.options = IDFToolOptions(version_cmd, version_regex, version_regex_replace,
-                                      [], OrderedDict(), install, info_url, license, strip_container_dirs)
-        self.platform_overrides = []
+                                      [], OrderedDict(), install, info_url, license, strip_container_dirs, supported_targets)  # type: ignore
+        self.platform_overrides = []  # type: list[dict[str, str]]
         self._platform = CURRENT_PLATFORM
         self._update_current_options()
 
@@ -580,7 +587,10 @@ class IDFTool(object):
     def get_install_type(self):
         return self._current_options.install
 
-    def compatible_with_platform(self):
+    def get_supported_targets(self):  # type: ()  -> list[str]
+        return self._current_options.supported_targets  # type: ignore
+
+    def compatible_with_platform(self):  # type: () -> bool
         return any([v.compatible_with_platform() for v in self.versions.values()])
 
     def get_supported_platforms(self):  # type: () -> typing.Set[str]
@@ -793,10 +803,14 @@ class IDFTool(object):
         if type(overrides_list) is not list:
             raise RuntimeError('platform_overrides for tool %s is not a list' % tool_name)
 
+        supported_targets = tool_dict.get('supported_targets')
+        if not isinstance(supported_targets, list):
+            raise RuntimeError('supported_targets for tool %s is not a list of strings' % tool_name)
+
         # Create the object
-        tool_obj = cls(tool_name, description, install, info_url, license,
-                       version_cmd, version_regex, version_regex_replace,
-                       strip_container_dirs)
+        tool_obj = cls(tool_name, description, install, info_url, license,  # type: ignore
+                       version_cmd, version_regex, supported_targets, version_regex_replace,  # type: ignore
+                       strip_container_dirs)  # type: ignore
 
         for path in export_paths:
             tool_obj.options.export_paths.append(path)
@@ -902,6 +916,7 @@ class IDFTool(object):
             'license': self.options.license,
             'version_cmd': self.options.version_cmd,
             'version_regex': self.options.version_regex,
+            'supported_targets': self.options.supported_targets,
             'versions': versions_array,
         }
         if self.options.version_regex_replace != VERSION_REGEX_REPLACE_DEFAULT:
@@ -1009,7 +1024,102 @@ def get_python_env_path():
     return idf_python_env_path, idf_python_export_path, virtualenv_python
 
 
-def action_list(args):
+def get_idf_env():  # type: () -> Any
+    try:
+        idf_env_file_path = os.path.join(global_idf_tools_path, IDF_ENV_FILE)  # type: ignore
+        with open(idf_env_file_path, 'r') as idf_env_file:
+            return json.load(idf_env_file)
+    except (IOError, OSError):
+        if not os.path.exists(idf_env_file_path):
+            warn('File {} was not found. '.format(idf_env_file_path))
+        else:
+            filename, ending = os.path.splitext(os.path.basename(idf_env_file_path))
+            warn('File {} can not be opened, renaming to {}'.format(idf_env_file_path,filename + '_failed' + ending))
+            os.rename(idf_env_file_path, os.path.join(os.path.dirname(idf_env_file_path), (filename + '_failed' + ending)))
+
+        info('Creating {}' .format(idf_env_file_path))
+        return {'idfSelectedId': 'sha', 'idfInstalled': {'sha': {'targets': {}}}}
+
+
+def export_targets_to_idf_env_json(targets):  # type: (list[str]) -> None
+    idf_env_json = get_idf_env()
+    targets = list(set(targets + get_user_defined_targets()))
+
+    for env in idf_env_json['idfInstalled']:
+        if env == idf_env_json['idfSelectedId']:
+            idf_env_json['idfInstalled'][env]['targets'] = targets
+            break
+
+    try:
+        if global_idf_tools_path:  # mypy fix for Optional[str] in the next call
+            # the directory doesn't exist if this is run on a clean system the first time
+            mkdir_p(global_idf_tools_path)
+        with open(os.path.join(global_idf_tools_path, IDF_ENV_FILE), 'w') as w:  # type: ignore
+            json.dump(idf_env_json, w, indent=4)
+    except (IOError, OSError):
+        warn('File {} can not be created. '.format(os.path.join(global_idf_tools_path, IDF_ENV_FILE)))  # type: ignore
+
+
+def clean_targets(targets_str):  # type: (str) -> list[str]
+    targets_from_tools_json = get_all_targets_from_tools_json()
+    invalid_targets = []
+
+    targets_str = targets_str.lower()
+    targets = targets_str.replace('-', '').split(',')
+    if targets != ['all']:
+        invalid_targets = [t for t in targets if t not in targets_from_tools_json]
+        if invalid_targets:
+            warn('Targets: "{}" are not supported. Only allowed options are: {}.'.format(', '.join(invalid_targets), ', '.join(targets_from_tools_json)))
+            raise SystemExit(1)
+        # removing duplicates
+        targets = list(set(targets))
+        export_targets_to_idf_env_json(targets)
+    else:
+        export_targets_to_idf_env_json(targets_from_tools_json)
+    return targets
+
+
+def get_user_defined_targets():  # type: () -> list[str]
+    try:
+        with open(os.path.join(global_idf_tools_path, IDF_ENV_FILE), 'r') as idf_env_file:  # type: ignore
+            idf_env_json = json.load(idf_env_file)
+    except (OSError, IOError):
+        # warn('File {} was not found. Installing tools for all esp targets.'.format(os.path.join(global_idf_tools_path, IDF_ENV_FILE)))  # type: ignore
+        return []
+
+    targets = []
+    for env in idf_env_json['idfInstalled']:
+        if env == idf_env_json['idfSelectedId']:
+            targets = idf_env_json['idfInstalled'][env]['targets']
+            break
+    return targets
+
+
+def get_all_targets_from_tools_json():  # type: () -> list[str]
+    tools_info = load_tools_info()
+    targets_from_tools_json = []  # type: list[str]
+
+    for _, v in tools_info.items():
+        targets_from_tools_json.extend(v.get_supported_targets())
+    # remove duplicates
+    targets_from_tools_json = list(set(targets_from_tools_json))
+    if 'all' in targets_from_tools_json:
+        targets_from_tools_json.remove('all')
+    return sorted(targets_from_tools_json)
+
+
+def filter_tools_info(tools_info):  # type: (OrderedDict[str, IDFTool]) -> OrderedDict[str,IDFTool]
+    targets = get_user_defined_targets()
+    if not targets:
+        return tools_info
+    else:
+        filtered_tools_spec = {k:v for k, v in tools_info.items() if
+                               (v.get_install_type() == IDFTool.INSTALL_ALWAYS or v.get_install_type() == IDFTool.INSTALL_ON_REQUEST) and
+                               (any(item in targets for item in v.get_supported_targets()) or v.get_supported_targets() == ['all'])}
+        return OrderedDict(filtered_tools_spec)
+
+
+def action_list(args):  # type: ignore
     tools_info = load_tools_info()
     for name, tool in tools_info.items():
         if tool.get_install_type() == IDFTool.INSTALL_NEVER:
@@ -1030,6 +1140,7 @@ def action_list(args):
 
 def action_check(args):
     tools_info = load_tools_info()
+    tools_info = filter_tools_info(tools_info)
     not_found_list = []
     info('Checking for installed tools...')
     for name, tool in tools_info.items():
@@ -1056,6 +1167,7 @@ def action_check(args):
 
 def action_export(args):
     tools_info = load_tools_info()
+    tools_info = filter_tools_info(tools_info)
     all_tools_found = True
     export_vars = {}
     paths_to_export = []
@@ -1237,6 +1349,10 @@ def apply_github_assets_option(tool_download_obj):
 def action_download(args):
     tools_info = load_tools_info()
     tools_spec = args.tools
+    targets = []  # type: list[str]
+    # Installing only single tools, no targets are specified.
+    if 'required' in tools_spec:
+        targets = clean_targets(args.targets)
 
     if args.platform not in PLATFORM_FROM_NAME:
         fatal('unknown platform: {}' % args.platform)
@@ -1249,8 +1365,17 @@ def action_download(args):
         tools_info_for_platform[name] = tool_for_platform
 
     if not tools_spec or 'required' in tools_spec:
+        # Downloading tools for all ESP_targets required by the operating system.
         tools_spec = [k for k, v in tools_info_for_platform.items() if v.get_install_type() == IDFTool.INSTALL_ALWAYS]
+        # Filtering tools user defined list of ESP_targets
+        if 'all' not in targets:
+            def is_tool_selected(tool):  # type: (IDFTool) -> bool
+                supported_targets = tool.get_supported_targets()
+                return (any(item in targets for item in supported_targets) or supported_targets == ['all'])
+            tools_spec = [k for k in tools_spec if is_tool_selected(tools_info[k])]
         info('Downloading tools for {}: {}'.format(platform, ', '.join(tools_spec)))
+
+    # Downloading tools for all ESP_targets (MacOS, Windows, Linux)
     elif 'all' in tools_spec:
         tools_spec = [k for k, v in tools_info_for_platform.items() if v.get_install_type() != IDFTool.INSTALL_NEVER]
         info('Downloading tools for {}: {}'.format(platform, ', '.join(tools_spec)))
@@ -1283,10 +1408,25 @@ def action_download(args):
 
 def action_install(args):
     tools_info = load_tools_info()
-    tools_spec = args.tools
+    tools_spec = args.tools  # type: ignore
+    targets = []  # type: list[str]
+    # Installing only single tools, no targets are specified.
+    if 'required' in tools_spec:
+        targets = clean_targets(args.targets)
+        info('Selected targets are: {}' .format(', '.join(get_user_defined_targets())))
+
     if not tools_spec or 'required' in tools_spec:
+        # Installing tools for all ESP_targets required by the operating system.
         tools_spec = [k for k, v in tools_info.items() if v.get_install_type() == IDFTool.INSTALL_ALWAYS]
+        # Filtering tools user defined list of ESP_targets
+        if 'all' not in targets:
+            def is_tool_selected(tool):  # type: (IDFTool) -> bool
+                supported_targets = tool.get_supported_targets()
+                return (any(item in targets for item in supported_targets) or supported_targets == ['all'])
+            tools_spec = [k for k in tools_spec if is_tool_selected(tools_info[k])]
         info('Installing tools: {}'.format(', '.join(tools_spec)))
+
+    # Installing tools for all ESP_targets (MacOS, Windows, Linux)
     elif 'all' in tools_spec:
         tools_spec = [k for k, v in tools_info.items() if v.get_install_type() != IDFTool.INSTALL_NEVER]
         info('Installing tools: {}'.format(', '.join(tools_spec)))
@@ -1358,8 +1498,8 @@ def action_install_python_env(args):  # type: ignore
         try:
             subprocess.check_call([virtualenv_python, '-m', 'pip', '--version'], stdout=sys.stdout, stderr=sys.stderr)
         except subprocess.CalledProcessError:
-            warn('PIP is not available in the virtual environment.')
-            # Reinstallation of the virtual environment could help if PIP was installed for the main Python
+            warn('pip is not available in the existing virtual environment, new virtual environment will be created.')
+            # Reinstallation of the virtual environment could help if pip was installed for the main Python
             reinstall = True
 
     if reinstall and os.path.exists(idf_python_env_path):
@@ -1367,17 +1507,50 @@ def action_install_python_env(args):  # type: ignore
         shutil.rmtree(idf_python_env_path)
 
     if not os.path.exists(virtualenv_python):
-        info('Creating a new Python environment in {}'.format(idf_python_env_path))
+        # Before creating the virtual environment, check if pip is installed.
+        try:
+            subprocess.check_call([sys.executable, '-m', 'pip', '--version'])
+        except subprocess.CalledProcessError:
+            fatal('Python interpreter at {} doesn\'t have pip installed. '
+                  'Please check the Getting Started Guides for the steps to install prerequisites for your OS.'.format(sys.executable))
+            raise SystemExit(1)
 
+        virtualenv_installed_via_pip = False
         try:
             import virtualenv  # noqa: F401
         except ImportError:
             info('Installing virtualenv')
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--user', 'virtualenv'],
                                   stdout=sys.stdout, stderr=sys.stderr)
+            virtualenv_installed_via_pip = True
+            # since we just installed virtualenv via pip, we know that version is recent enough
+            # so the version check below is not necessary.
 
-        subprocess.check_call([sys.executable, '-m', 'virtualenv', idf_python_env_path],
+        with_seeder_option = True
+        if not virtualenv_installed_via_pip:
+            # virtualenv is already present in the system and may have been installed via OS package manager
+            # check the version to determine if we should add --seeder option
+            try:
+                major_ver = int(virtualenv.__version__.split('.')[0])
+                if major_ver < 20:
+                    warn('Virtualenv version {} is old, please consider upgrading it'.format(virtualenv.__version__))
+                    with_seeder_option = False
+            except (ValueError, NameError, AttributeError, IndexError):
+                pass
+
+        info('Creating a new Python environment in {}'.format(idf_python_env_path))
+        virtualenv_options = ['--python', sys.executable]
+        if with_seeder_option:
+            virtualenv_options += ['--seeder', 'pip']
+
+        subprocess.check_call([sys.executable, '-m', 'virtualenv'] +
+                              virtualenv_options +
+                              [idf_python_env_path],
                               stdout=sys.stdout, stderr=sys.stderr)
+    env_copy = os.environ.copy()
+    if env_copy.get('PIP_USER')  == 'yes':
+        warn('Found PIP_USER="yes" in the environment. Disabling PIP_USER in this shell to install packages into a virtual environment.')
+        env_copy['PIP_USER'] = 'no'
     run_args = [virtualenv_python, '-m', 'pip', 'install', '--no-warn-script-location']
     requirements_txt = os.path.join(global_idf_path, 'requirements.txt')
     run_args += ['-r', requirements_txt]
@@ -1393,7 +1566,7 @@ def action_install_python_env(args):  # type: ignore
         run_args += ['--find-links', wheels_dir]
 
     info('Installing Python packages from {}'.format(requirements_txt))
-    subprocess.check_call(run_args, stdout=sys.stdout, stderr=sys.stderr)
+    subprocess.check_call(run_args, stdout=sys.stdout, stderr=sys.stderr, env=env_copy)
 
 
 def action_add_version(args):
@@ -1573,6 +1746,8 @@ def main(argv):
                          'To install a specific version use <tool_name>@<version> syntax. ' +
                          'Use empty or \'required\' to install required tools, not optional ones. ' +
                          'Use \'all\' to install all tools, including the optional ones.')
+    install.add_argument('--targets', default='all', help='A comma separated list of desired chip targets for installing.' +
+                         ' It defaults to installing all supported targets.')
 
     download = subparsers.add_parser('download', help='Download the tools into the dist directory')
     download.add_argument('--platform', help='Platform to download the tools for')
@@ -1581,6 +1756,8 @@ def main(argv):
                           'To download a specific version use <tool_name>@<version> syntax. ' +
                           'Use empty or \'required\' to download required tools, not optional ones. ' +
                           'Use \'all\' to download all tools, including the optional ones.')
+    download.add_argument('--targets', default='all', help='A comma separated list of desired chip targets for installing.' +
+                          ' It defaults to installing all supported targets.')
 
     if IDF_MAINTAINER:
         for subparser in [download, install]:

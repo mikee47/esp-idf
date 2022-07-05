@@ -14,11 +14,9 @@
 
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+#include <stdbool.h>
 #include <stdint.h>
+
 #include "esp_err.h"
 #include "esp_log.h"
 #include "soc/soc_caps.h"
@@ -31,6 +29,10 @@ extern "C" {
 #include "esp32s3/esp_efuse.h"
 #elif CONFIG_IDF_TARGET_ESP32C3
 #include "esp32c3/esp_efuse.h"
+#endif
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 #define ESP_ERR_EFUSE                              0x1600                     /*!< Base error code for efuse api. */
@@ -760,6 +762,20 @@ esp_err_t esp_efuse_write_key(esp_efuse_block_t block, esp_efuse_purpose_t purpo
 esp_err_t esp_efuse_write_keys(esp_efuse_purpose_t purposes[], uint8_t keys[][32], unsigned number_of_keys);
 
 #endif // not CONFIG_IDF_TARGET_ESP32
+
+/**
+ * @brief   Checks eFuse errors in BLOCK0.
+ *
+ * @note Refers to ESP32-C3 only.
+ *
+ * It does a BLOCK0 check if eFuse EFUSE_ERR_RST_ENABLE is set.
+ * If BLOCK0 has an error, it prints the error and returns ESP_FAIL, which should be treated as esp_restart.
+ *
+ * @return
+ *         - ESP_OK: No errors in BLOCK0.
+ *         - ESP_FAIL: Error in BLOCK0 requiring reboot.
+ */
+esp_err_t esp_efuse_check_errors(void);
 
 #ifdef __cplusplus
 }

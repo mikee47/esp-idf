@@ -1,16 +1,8 @@
-// Copyright 2015-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #ifndef _SIMPLE_BLE_
 #define _SIMPLE_BLE_
 
@@ -33,11 +25,9 @@ typedef struct {
     /** Name to be displayed to devices scanning for ESP32 */
     const char *device_name;
     /** Raw advertisement data */
-    uint8_t *raw_adv_data_p;
-    uint8_t raw_adv_data_len;
+    esp_ble_adv_data_t *adv_data_p;
     /** Raw scan response data */
-    uint8_t *raw_scan_rsp_data_p;
-    uint8_t raw_scan_rsp_data_len;
+    esp_ble_adv_data_t *scan_rsp_data_p;
     /** Parameters to configure the nature of advertising */
     esp_ble_adv_params_t adv_params;
     /** Descriptor table which consists of the configuration
@@ -57,6 +47,10 @@ typedef struct {
     simple_ble_cb_t *connect_fn;
     /** MTU set callback */
     simple_ble_cb_t *set_mtu_fn;
+    /** BLE bonding */
+    unsigned ble_bonding:1;
+    /** BLE Secure Connection flag */
+    unsigned ble_sm_sc:1;
 } simple_ble_cfg_t;
 
 

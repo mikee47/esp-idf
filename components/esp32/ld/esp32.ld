@@ -17,8 +17,8 @@
 #include "sdkconfig.h"
 
 /* If BT is not built at all */
-#ifndef CONFIG_BT_RESERVE_DRAM
-#define CONFIG_BT_RESERVE_DRAM 0
+#ifndef CONFIG_BTDM_RESERVE_DRAM
+#define CONFIG_BTDM_RESERVE_DRAM 0
 #endif
 
 #ifdef CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC
@@ -73,8 +73,8 @@ MEMORY
      in heap at runtime. However due to static ROM memory usage at this 176KB mark, the
      additional static memory temporarily cannot be used.
   */
-  dram0_0_seg (RW) :                 org = 0x3FFB0000 + CONFIG_BT_RESERVE_DRAM,
-                                     len = DRAM0_0_SEG_LEN - CONFIG_BT_RESERVE_DRAM
+  dram0_0_seg (RW) :                 org = 0x3FFB0000 + CONFIG_BTDM_RESERVE_DRAM,
+                                     len = DRAM0_0_SEG_LEN - CONFIG_BTDM_RESERVE_DRAM
 
 #ifdef CONFIG_APP_BUILD_USE_FLASH_SECTIONS
   /* Flash mapped constant data */
@@ -97,7 +97,7 @@ MEMORY
   rtc_slow_seg(RW)  :                org = 0x50000000 + CONFIG_ESP32_ULP_COPROC_RESERVE_MEM,
                                      len = 0x2000 - CONFIG_ESP32_ULP_COPROC_RESERVE_MEM
 
-  /* external memory ,including data and text */
+  /* external memory */
   extern_ram_seg(RWX)  :             org = 0x3F800000,
                                      len = 0x400000
 }

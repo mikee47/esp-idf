@@ -74,6 +74,7 @@
 
 #define START_PAYLOAD_MAX      20
 #define CONT_PAYLOAD_MAX       23
+#define START_LAST_SEG_MAX     2
 
 #define START_LAST_SEG(gpc)    (gpc >> 2)
 #define CONT_SEG_INDEX(gpc)    (gpc >> 2)
@@ -840,6 +841,7 @@ static void prov_start(const uint8_t *data)
 
 static void send_confirm(void)
 {
+    uint8_t *local_conf = NULL;
     PROV_BUF(cfm, 17);
 
     BT_DBG("ConfInputs[0]   %s", bt_hex(link.conf_inputs, 64));
@@ -872,10 +874,18 @@ static void send_confirm(void)
 
     prov_buf_init(&cfm, PROV_CONFIRM);
 
+    local_conf = net_buf_simple_add(&cfm, 16);
+
     if (bt_mesh_prov_conf(link.conf_key, link.rand, link.auth,
-                          net_buf_simple_add(&cfm, 16))) {
+                          local_conf)) {
         BT_ERR("Unable to generate confirmation value");
         prov_send_fail_msg(PROV_ERR_UNEXP_ERR);
+        return;
+    }
+
+    if (!memcmp(link.conf, local_conf, 16)) {
+        BT_ERR("Confirmation value is identical to ours, rejecting.");
+        prov_send_fail_msg(PROV_ERR_NVAL_FMT);
         return;
     }
 
@@ -1551,6 +1561,12 @@ static void gen_prov_start(struct prov_rx *rx, struct net_buf_simple *buf)
     if (link.rx.buf->len < 1) {
         BT_ERR("Ignoring zero-length provisioning PDU");
         prov_send_fail_msg(PROV_ERR_NVAL_FMT);
+        return;
+    }
+
+    if (START_LAST_SEG(rx->gpc) > START_LAST_SEG_MAX) {
+        BT_ERR("Invalid SegN 0x%02x", START_LAST_SEG(rx->gpc));
+        prov_send_fail_msg(PROV_ERR_UNEXP_ERR);
         return;
     }
 

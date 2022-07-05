@@ -53,8 +53,7 @@
 #include "esp_pm.h"
 #include "esp_private/pm_impl.h"
 #include "esp_pthread.h"
-#include "esp_private/usb_console.h"
-#include "esp_vfs_cdcacm.h"
+#include "esp_vfs_console.h"
 
 #include "esp_rom_sys.h"
 
@@ -84,9 +83,6 @@
 #if !(SOC_CPU_CORES_NUM > 1) && !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
     #error "System has been configured to run on multiple cores, but target SoC only has a single core."
 #endif
-
-#define STRINGIFY(s) STRINGIFY2(s)
-#define STRINGIFY2(s) #s
 
 uint64_t g_startup_time = 0;
 
@@ -243,7 +239,6 @@ static void do_core_init(void)
        fail initializing it properly. */
     heap_caps_init();
     esp_newlib_init();
-    esp_newlib_time_init();
 
     if (g_spiram_ok) {
 #if CONFIG_SPIRAM_BOOT_INIT && (CONFIG_SPIRAM_USE_CAPS_ALLOC || CONFIG_SPIRAM_USE_MALLOC)
@@ -267,19 +262,20 @@ static void do_core_init(void)
     esp_brownout_init();
 #endif
 
-#ifdef CONFIG_VFS_SUPPORT_IO
-#ifdef CONFIG_ESP_CONSOLE_UART
-    esp_vfs_dev_uart_register();
-    const char *default_stdio_dev = "/dev/uart/" STRINGIFY(CONFIG_ESP_CONSOLE_UART_NUM);
-#endif // CONFIG_ESP_CONSOLE_UART
-#ifdef CONFIG_ESP_CONSOLE_USB_CDC
-    ESP_ERROR_CHECK(esp_usb_console_init());
-    ESP_ERROR_CHECK(esp_vfs_dev_cdcacm_register());
-    const char *default_stdio_dev = "/dev/cdcacm";
-#endif // CONFIG_ESP_CONSOLE_USB_CDC
-#endif // CONFIG_VFS_SUPPORT_IO
+    // esp_timer early initialization is required for esp_timer_get_time to work.
+    // This needs to happen before VFS initialization, since some USB_SERIAL_JTAG VFS driver uses
+    // esp_timer_get_time to determine timeout conditions.
+    esp_timer_early_init();
+    esp_newlib_time_init();
+
+#if CONFIG_VFS_SUPPORT_IO
+    // VFS console register.
+    esp_err_t vfs_err = esp_vfs_console_register();
+    assert(vfs_err == ESP_OK && "Failed to register vfs console");
+#endif
 
 #if defined(CONFIG_VFS_SUPPORT_IO) && !defined(CONFIG_ESP_CONSOLE_NONE)
+    const static char *default_stdio_dev = "/dev/console/";
     esp_reent_init(_GLOBAL_REENT);
     _GLOBAL_REENT->_stdin  = fopen(default_stdio_dev, "r");
     _GLOBAL_REENT->_stdout = fopen(default_stdio_dev, "w");
@@ -302,19 +298,6 @@ static void do_core_init(void)
 
 #if CONFIG_ESP32_DISABLE_BASIC_ROM_CONSOLE
     esp_efuse_disable_basic_rom_console();
-#endif
-
-    // [refactor-todo] move this to secondary init
-#if CONFIG_APPTRACE_ENABLE
-    err = esp_apptrace_init();
-    assert(err == ESP_OK && "Failed to init apptrace module on PRO CPU!");
-#endif
-#if CONFIG_SYSVIEW_ENABLE
-    SEGGER_SYSVIEW_Conf();
-#endif
-
-#if CONFIG_ESP_DEBUG_STUBS_ENABLE
-    esp_dbg_stubs_init();
 #endif
 
     err = esp_pthread_init();
@@ -431,6 +414,18 @@ IRAM_ATTR ESP_SYSTEM_INIT_FN(init_components0, BIT(0))
     esp_sleep_config_gpio_isolate();
     /* Enable automatic switching of GPIO configuration */
     esp_sleep_enable_gpio_switch(true);
+#endif
+
+#if CONFIG_APPTRACE_ENABLE
+    esp_err_t err = esp_apptrace_init();
+    assert(err == ESP_OK && "Failed to init apptrace module on PRO CPU!");
+#endif
+#if CONFIG_APPTRACE_SV_ENABLE
+    SEGGER_SYSVIEW_Conf();
+#endif
+
+#if CONFIG_ESP_DEBUG_STUBS_ENABLE
+    esp_dbg_stubs_init();
 #endif
 
 #if defined(CONFIG_PM_ENABLE)
