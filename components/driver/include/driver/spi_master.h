@@ -206,6 +206,20 @@ esp_err_t spi_bus_remove_device(spi_device_handle_t handle);
  */
 esp_err_t spi_device_queue_trans(spi_device_handle_t handle, spi_transaction_t *trans_desc, TickType_t ticks_to_wait);
 
+/**
+ * @brief Queue a SPI transaction for interrupt transaction execution, callable from within ISR.
+ *
+ * @note Caller must ensure any supplied buffers are DMA-capable as the routine does not check them.
+ *
+ * @param handle Device handle obtained using spi_host_add_dev
+ * @param trans_desc Description of transaction to execute
+ * 
+ * @return
+ *         - ESP_ERR_INVALID_STATE if there was no room in the queue
+ *         - ESP_OK                on success
+ */
+esp_err_t IRAM_ATTR spi_device_queue_trans_from_isr(spi_device_handle_t handle, spi_transaction_t *trans_desc);
+
 
 /**
  * @brief Get the result of a SPI transaction queued earlier by ``spi_device_queue_trans``.

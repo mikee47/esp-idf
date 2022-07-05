@@ -56,6 +56,8 @@ typedef enum {
  */
 static inline void pcnt_ll_set_edge_action(pcnt_dev_t *hw, uint32_t unit, uint32_t channel, pcnt_channel_edge_action_t pos_act, pcnt_channel_edge_action_t neg_act)
 {
+    typeof(hw->conf_unit[unit].conf0) conf0_reg;
+    conf0_reg.val = hw->conf_unit[unit].conf0.val;
     if (channel == 0) {
         hw->conf_unit[unit].conf0.ch0_pos_mode_un = pos_act;
         hw->conf_unit[unit].conf0.ch0_neg_mode_un = neg_act;
@@ -63,6 +65,7 @@ static inline void pcnt_ll_set_edge_action(pcnt_dev_t *hw, uint32_t unit, uint32
         hw->conf_unit[unit].conf0.ch1_pos_mode_un = pos_act;
         hw->conf_unit[unit].conf0.ch1_neg_mode_un = neg_act;
     }
+    hw->conf_unit[unit].conf0.val = conf0_reg.val;
 }
 
 /**
@@ -76,6 +79,11 @@ static inline void pcnt_ll_set_edge_action(pcnt_dev_t *hw, uint32_t unit, uint32
  */
 static inline void pcnt_ll_set_level_action(pcnt_dev_t *hw, uint32_t unit, uint32_t channel, pcnt_channel_level_action_t high_act, pcnt_channel_level_action_t low_act)
 {
+<<<<<<< HEAD
+=======
+    typeof(hw->conf_unit[unit].conf0) conf0_reg;
+    conf0_reg.val = hw->conf_unit[unit].conf0.val;
+>>>>>>> 19ab5b86cc (Merge branch 'sming/release/v4.3' into sming/dev/4.3.x)
     if (channel == 0) {
         hw->conf_unit[unit].conf0.ch0_hctrl_mode_un = high_act;
         hw->conf_unit[unit].conf0.ch0_lctrl_mode_un = low_act;
@@ -83,6 +91,27 @@ static inline void pcnt_ll_set_level_action(pcnt_dev_t *hw, uint32_t unit, uint3
         hw->conf_unit[unit].conf0.ch1_hctrl_mode_un = high_act;
         hw->conf_unit[unit].conf0.ch1_lctrl_mode_un = low_act;
     }
+<<<<<<< HEAD
+=======
+    hw->conf_unit[unit].conf0.val = conf0_reg.val;
+}
+
+/**
+ * @brief Set PCNT counter mode
+ *
+ * @param hw Peripheral PCNT hardware instance address.
+ * @param unit PCNT unit number
+ * @param channel PCNT channel number
+ * @param pos_mode Counter mode when detecting positive edge
+ * @param neg_mode Counter mode when detecting negative edge
+ * @param hctrl_mode Counter mode when control signal is high level
+ * @param lctrl_mode Counter mode when control signal is low level
+ */
+static inline void pcnt_ll_set_mode(pcnt_dev_t *hw, pcnt_unit_t unit, pcnt_channel_t channel, pcnt_count_mode_t pos_mode, pcnt_count_mode_t neg_mode, pcnt_ctrl_mode_t hctrl_mode, pcnt_ctrl_mode_t lctrl_mode)
+{
+    pcnt_ll_set_edge_mode(hw, unit, channel, pos_mode, neg_mode);
+    pcnt_ll_set_level_mode(hw, unit, channel, hctrl_mode, lctrl_mode);
+>>>>>>> 19ab5b86cc (Merge branch 'sming/release/v4.3' into sming/dev/4.3.x)
 }
 
 /**
