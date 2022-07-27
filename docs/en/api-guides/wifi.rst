@@ -241,6 +241,11 @@ WIFI_EVENT_AP_PROBEREQRECVED
 This event is disabled by default. The application can enable it via API :cpp:func:`esp_wifi_set_event_mask()`.
 When this event is enabled, it will be raised each time the AP receives a probe request.
 
+WIFI_EVENT_STA_BEACON_TIMEOUT
+++++++++++++++++++++++++++++++++++++
+
+If the station does not receive the beacon of the connected AP within the inactive time, the beacon timeout happens, the `WIFI_EVENT_STA_BEACON_TIMEOUT`_ will arise. The application can set inactive time via API :cpp:func:`esp_wifi_set_inactive_time()`.
+
 {IDF_TARGET_NAME} Wi-Fi Station General Scenario
 ------------------------------------------------
 Below is a "big scenario" which describes some small scenarios in Station mode:
@@ -1017,9 +1022,11 @@ Another thing we need to consider is the reconnect may not connect the same AP i
 Wi-Fi Beacon Timeout
 ---------------------------
 
-The beacon timeout mechanism is used by {IDF_TARGET_NAME} station to detect whether the AP is alive or not. If the station continuously loses 60 beacons of the connected AP, the beacon timeout happens.
+The beacon timeout mechanism is used by {IDF_TARGET_NAME} station to detect whether the AP is alive or not. If the station does not receive the beacon of the connected AP within the inactive time, the beacon timeout happens. The application can set inactive time via API :cpp:func:`esp_wifi_set_inactive_time()`.
 
 After the beacon timeout happens, the station sends 5 probe requests to AP, it disconnects the AP and raises the event `WIFI_EVENT_STA_DISCONNECTED`_ if still no probe response or beacon is received from AP.
+
+It should be considered that the timer used for beacon timeout will be reset during the scanning process. It means that the scan process will affect the triggering of the event `WIFI_EVENT_STA_BEACON_TIMEOUT`_.
 
 {IDF_TARGET_NAME} Wi-Fi Configuration
 -------------------------------------
@@ -1613,7 +1620,9 @@ The Wi-Fi multiple antennas selecting can be depicted as following picture::
 
 Up to four GPIOs are connected to the four active high antenna_select pins. {IDF_TARGET_NAME} can select the antenna by control the GPIO[0:3]. The API :cpp:func:`esp_wifi_set_ant_gpio()` is used to configure which GPIOs are connected to antenna_selects. If GPIO[x] is connected to antenna_select[x], then gpio_config->gpio_cfg[x].gpio_select should be set to 1 and gpio_config->gpio_cfg[x].gpio_num should be provided.
 
-Although up to sixteen anteenas are supported, only one or two antennas can be simultaneously enabled for RX/TX. The API :cpp:func:`esp_wifi_set_ant()` is used to configure which antennas are enabled.
+For the specific implementation of the antenna switch, there may be illegal values in `antenna_select[0:3]`. It means that {IDF_TARGET_NAME} may support less than sixteen antennas through the switch. For example, ESP32-WROOM-DA which uses RTC6603SP as the antenna switch, supports two antennas. Two GPIOs are connected to two active high antenna selection inputs. The value '0b01' means the antenna 0 is selected, the value '0b10' means the antenna 1 is selected. Values '0b00' and '0b11' are illegal.
+
+Although up to sixteen antennas are supported, only one or two antennas can be simultaneously enabled for RX/TX. The API :cpp:func:`esp_wifi_set_ant()` is used to configure which antennas are enabled.
 
 The enabled antennas selecting algorithm is also configured by :cpp:func:`esp_wifi_set_ant()`. The RX/TX antenna mode can be WIFI_ANT_MODE_ANT0, WIFI_ANT_MODE_ANT1 or WIFI_ANT_MODE_AUTO. If the antenna mode is WIFI_ANT_MODE_ANT0, the enabled antenna 0 is selected for RX/TX data. If the antenna mode is WIFI_ANT_MODE_ANT1, the enabled antenna 1 is selected for RX/TX data. Otherwise, Wi-Fi automatically selects the antenna that has better signal from the enabled antennas.
 
@@ -1685,6 +1694,18 @@ All of the information in the table can be found in the structure wifi_csi_info_
     - The CSI data corresponding to each Long Training Field(LTF) type is stored in a buffer starting from the buf field. Each item is stored as two bytes: imaginary part followed by real part. The order of each item is the same as the sub-carrier in the table. The order of LTF is: LLTF, HT-LTF, STBC-HT-LTF. However all 3 LTFs may not be present, depending on the channel and packet information (see above).
     - If first_word_invalid field of wifi_csi_info_t is true, it means that the first four bytes of CSI data is invalid due to a hardware limitation in {IDF_TARGET_NAME}.
     - More information like RSSI, noise floor of RF, receiving time and antenna is in the rx_ctrl field.
+
+When imaginary part and real part data of sub-carrier are used, please refer to the table below.
+
++----------------+-------------------+------------------------------+-------------------------+
+| PHY standard   | Sub-carrier range | Pilot sub-carrier            | Sub-carrier(total/data) |
++================+===================+==============================+=========================+
+| 802.11a/g      | -26 to +26        | -21, -7, +7, +21             | 52 total, 48 usable     |
++----------------+-------------------+------------------------------+-------------------------+
+| 802.11n, 20MHz | -28 to +28        | -21, -7, +7, +21             | 56 total, 52 usable     |
++----------------+-------------------+------------------------------+-------------------------+
+| 802.11n, 40MHz | -57 to +57        | -53, -25, -11, +11, +25, +53 | 114 total, 108 usable   |
++----------------+-------------------+------------------------------+-------------------------+
 
 .. note::
 

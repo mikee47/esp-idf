@@ -58,8 +58,15 @@ static const char* TAG = "phy_init";
 
 static _lock_t s_phy_access_lock;
 
+static DRAM_ATTR struct {
+    int     count;  /* power on count of wifi and bt power domain */
+    _lock_t lock;
+} s_wifi_bt_pd_controller = { .count = 0 };
+
 /* Indicate PHY is calibrated or not */
 static bool s_is_phy_calibrated = false;
+
+static bool s_is_phy_reg_stored = false;
 
 /* Reference count of enabling PHY */
 static uint8_t s_phy_access_ref = 0;
@@ -79,9 +86,12 @@ static DRAM_ATTR portMUX_TYPE s_phy_int_mux = portMUX_INITIALIZER_UNLOCKED;
 
 /* Memory to store PHY digital registers */
 static uint32_t* s_phy_digital_regs_mem = NULL;
+static uint8_t s_phy_backup_mem_ref = 0;
 
 #if CONFIG_MAC_BB_PD
 uint32_t* s_mac_bb_pd_mem = NULL;
+/* Reference count of MAC BB backup memory */
+static uint8_t s_macbb_backup_mem_ref = 0;
 #endif
 
 #if CONFIG_ESP32_SUPPORT_MULTIPLE_PHY_INIT_DATA_BIN
@@ -210,18 +220,15 @@ IRAM_ATTR void esp_phy_common_clock_disable(void)
 
 static inline void phy_digital_regs_store(void)
 {
-    if (s_phy_digital_regs_mem == NULL) {
-        s_phy_digital_regs_mem = (uint32_t *)malloc(SOC_PHY_DIG_REGS_MEM_SIZE);
-    }
-
     if (s_phy_digital_regs_mem != NULL) {
         phy_dig_reg_backup(true, s_phy_digital_regs_mem);
+        s_is_phy_reg_stored = true;
     }
 }
 
 static inline void phy_digital_regs_load(void)
 {
-    if (s_phy_digital_regs_mem != NULL) {
+    if (s_is_phy_reg_stored && s_phy_digital_regs_mem != NULL) {
         phy_dig_reg_backup(false, s_phy_digital_regs_mem);
     }
 }
@@ -251,12 +258,6 @@ void esp_phy_enable(void)
 #if CONFIG_IDF_TARGET_ESP32
         coex_bt_high_prio();
 #endif
-
-#if CONFIG_BT_ENABLED && (CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3)
-    extern void coex_pti_v2(void);
-    coex_pti_v2();
-#endif
-
     }
     s_phy_access_ref++;
 
@@ -287,13 +288,77 @@ void esp_phy_disable(void)
     _lock_release(&s_phy_access_lock);
 }
 
+void IRAM_ATTR esp_wifi_bt_power_domain_on(void)
+{
+    _lock_acquire(&s_wifi_bt_pd_controller.lock);
+    if (s_wifi_bt_pd_controller.count++ == 0) {
+        CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_PWC_REG, RTC_CNTL_WIFI_FORCE_PD);
+#if CONFIG_IDF_TARGET_ESP32C3
+        SET_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, SYSTEM_WIFIBB_RST | SYSTEM_FE_RST);
+        CLEAR_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, SYSTEM_WIFIBB_RST | SYSTEM_FE_RST);
+#endif
+        CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_WIFI_FORCE_ISO);
+    }
+    _lock_release(&s_wifi_bt_pd_controller.lock);
+}
+
+void esp_wifi_bt_power_domain_off(void)
+{
+    _lock_acquire(&s_wifi_bt_pd_controller.lock);
+    if (--s_wifi_bt_pd_controller.count == 0) {
+        SET_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_WIFI_FORCE_ISO);
+        SET_PERI_REG_MASK(RTC_CNTL_DIG_PWC_REG, RTC_CNTL_WIFI_FORCE_PD);
+    }
+    _lock_release(&s_wifi_bt_pd_controller.lock);
+}
+
+void esp_phy_pd_mem_init(void)
+{
+    _lock_acquire(&s_phy_access_lock);
+
+    s_phy_backup_mem_ref++;
+    if (s_phy_digital_regs_mem == NULL) {
+        s_phy_digital_regs_mem = (uint32_t *)heap_caps_malloc(SOC_PHY_DIG_REGS_MEM_SIZE, MALLOC_CAP_DMA|MALLOC_CAP_INTERNAL);
+    }
+
+    _lock_release(&s_phy_access_lock);
+
+}
+
+void esp_phy_pd_mem_deinit(void)
+{
+    _lock_acquire(&s_phy_access_lock);
+
+    s_phy_backup_mem_ref--;
+    if (s_phy_backup_mem_ref == 0) {
+        s_is_phy_reg_stored = false;
+        free(s_phy_digital_regs_mem);
+        s_phy_digital_regs_mem = NULL;
+    }
+
+    _lock_release(&s_phy_access_lock);
+}
+
 #if CONFIG_MAC_BB_PD
 void esp_mac_bb_pd_mem_init(void)
 {
     _lock_acquire(&s_phy_access_lock);
 
+    s_macbb_backup_mem_ref++;
     if (s_mac_bb_pd_mem == NULL) {
         s_mac_bb_pd_mem = (uint32_t *)heap_caps_malloc(SOC_MAC_BB_PD_MEM_SIZE, MALLOC_CAP_DMA|MALLOC_CAP_INTERNAL);
+    }
+    _lock_release(&s_phy_access_lock);
+}
+
+void esp_mac_bb_pd_mem_deinit(void)
+{
+    _lock_acquire(&s_phy_access_lock);
+
+    s_macbb_backup_mem_ref--;
+    if (s_macbb_backup_mem_ref == 0) {
+        free(s_mac_bb_pd_mem);
+        s_mac_bb_pd_mem = NULL;
     }
 
     _lock_release(&s_phy_access_lock);
@@ -301,12 +366,12 @@ void esp_mac_bb_pd_mem_init(void)
 
 IRAM_ATTR void esp_mac_bb_power_up(void)
 {
-    if (s_mac_bb_pd_mem != NULL && (!s_mac_bb_pu)) {
+    if (s_mac_bb_pd_mem == NULL) {
+        return;
+    }
+    esp_wifi_bt_power_domain_on();
+    if (!s_mac_bb_pu) {
         esp_phy_common_clock_enable();
-        CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_PWC_REG, RTC_CNTL_WIFI_FORCE_PD);
-        SET_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, SYSTEM_BB_RST | SYSTEM_FE_RST);
-        CLEAR_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, SYSTEM_BB_RST | SYSTEM_FE_RST);
-        CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_WIFI_FORCE_ISO);
         phy_freq_mem_backup(false, s_mac_bb_pd_mem);
         esp_phy_common_clock_disable();
         s_mac_bb_pu = true;
@@ -315,14 +380,16 @@ IRAM_ATTR void esp_mac_bb_power_up(void)
 
 IRAM_ATTR void esp_mac_bb_power_down(void)
 {
-    if (s_mac_bb_pd_mem != NULL && s_mac_bb_pu) {
+    if (s_mac_bb_pd_mem == NULL) {
+        return;
+    }
+    if (s_mac_bb_pu) {
         esp_phy_common_clock_enable();
         phy_freq_mem_backup(true, s_mac_bb_pd_mem);
-        SET_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_WIFI_FORCE_ISO);
-        SET_PERI_REG_MASK(RTC_CNTL_DIG_PWC_REG, RTC_CNTL_WIFI_FORCE_PD);
         esp_phy_common_clock_disable();
         s_mac_bb_pu = false;
     }
+    esp_wifi_bt_power_domain_off();
 }
 #endif
 
@@ -903,3 +970,6 @@ esp_err_t esp_phy_update_country_info(const char *country)
 #endif
     return ESP_OK;
 }
+
+void esp_wifi_power_domain_on(void) __attribute__((alias("esp_wifi_bt_power_domain_on")));
+void esp_wifi_power_domain_off(void) __attribute__((alias("esp_wifi_bt_power_domain_off")));
