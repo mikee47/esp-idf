@@ -1028,7 +1028,10 @@ def get_idf_env():  # type: () -> Any
     try:
         idf_env_file_path = os.path.join(global_idf_tools_path, IDF_ENV_FILE)  # type: ignore
         with open(idf_env_file_path, 'r') as idf_env_file:
-            return json.load(idf_env_file)
+            idf_env_json = json.load(idf_env_file)
+            if 'sha' not in idf_env_json['idfInstalled']:
+                idf_env_json['idfInstalled']['sha'] = {'targets': []}
+            return idf_env_json
     except (IOError, OSError):
         if not os.path.exists(idf_env_file_path):
             warn('File {} was not found. '.format(idf_env_file_path))
@@ -1038,17 +1041,14 @@ def get_idf_env():  # type: () -> Any
             os.rename(idf_env_file_path, os.path.join(os.path.dirname(idf_env_file_path), (filename + '_failed' + ending)))
 
         info('Creating {}' .format(idf_env_file_path))
-        return {'idfSelectedId': 'sha', 'idfInstalled': {'sha': {'targets': {}}}}
+        return {'idfInstalled': {'sha': {'targets': []}}}
 
 
 def export_targets_to_idf_env_json(targets):  # type: (list[str]) -> None
     idf_env_json = get_idf_env()
     targets = list(set(targets + get_user_defined_targets()))
 
-    for env in idf_env_json['idfInstalled']:
-        if env == idf_env_json['idfSelectedId']:
-            idf_env_json['idfInstalled'][env]['targets'] = targets
-            break
+    idf_env_json['idfInstalled']['sha']['targets'] = targets
 
     try:
         if global_idf_tools_path:  # mypy fix for Optional[str] in the next call
@@ -1083,16 +1083,12 @@ def get_user_defined_targets():  # type: () -> list[str]
     try:
         with open(os.path.join(global_idf_tools_path, IDF_ENV_FILE), 'r') as idf_env_file:  # type: ignore
             idf_env_json = json.load(idf_env_file)
+            if 'sha' not in idf_env_json['idfInstalled']:
+                idf_env_json['idfInstalled']['sha'] = {'targets': []}
     except (OSError, IOError):
-        # warn('File {} was not found. Installing tools for all esp targets.'.format(os.path.join(global_idf_tools_path, IDF_ENV_FILE)))  # type: ignore
         return []
 
-    targets = []
-    for env in idf_env_json['idfInstalled']:
-        if env == idf_env_json['idfSelectedId']:
-            targets = idf_env_json['idfInstalled'][env]['targets']
-            break
-    return targets
+    return idf_env_json['idfInstalled']['sha']['targets']  # type: ignore
 
 
 def get_all_targets_from_tools_json():  # type: () -> list[str]
@@ -1543,10 +1539,17 @@ def action_install_python_env(args):  # type: ignore
         if with_seeder_option:
             virtualenv_options += ['--seeder', 'pip']
 
+        env_copy = os.environ.copy()
+        # Virtualenv with setuptools>=60 produces on recent Debian/Ubuntu systems virtual environments with
+        # local/bin/python paths. SETUPTOOLS_USE_DISTUTILS=stdlib is a workaround to keep bin/python paths.
+        # See https://github.com/pypa/setuptools/issues/3278 for more information.
+        env_copy['SETUPTOOLS_USE_DISTUTILS'] = 'stdlib'
         subprocess.check_call([sys.executable, '-m', 'virtualenv'] +
                               virtualenv_options +
                               [idf_python_env_path],
-                              stdout=sys.stdout, stderr=sys.stderr)
+                              stdout=sys.stdout, stderr=sys.stderr,
+                              env=env_copy)
+
     env_copy = os.environ.copy()
     if env_copy.get('PIP_USER')  == 'yes':
         warn('Found PIP_USER="yes" in the environment. Disabling PIP_USER in this shell to install packages into a virtual environment.')

@@ -36,6 +36,7 @@
 #include "l2c_int.h"
 #include "stack/btm_api.h"
 #include "btm_int.h"
+#include "stack/acl_hci_link_interface.h"
 //#include "bt_utils.h"
 #include "device/controller.h"
 #include "osi/osi.h"
@@ -43,6 +44,7 @@
 #include "common/bt_trace.h"
 
 #include "osi/thread.h"
+#include "osi/pkt_queue.h"
 //#include "osi/mutex.h"
 // TODO(zachoverflow): remove this horrible hack
 #include "stack/btu.h"
@@ -124,8 +126,6 @@ static void btu_hcif_ssr_evt_dump (UINT8 *p, UINT16 evt_len);
 
 #if BLE_INCLUDED == TRUE
 static void btu_ble_ll_conn_complete_evt (UINT8 *p, UINT16 evt_len);
-static void btu_ble_process_adv_pkt (UINT8 *p);
-static void btu_ble_process_adv_dis(UINT8 *p);
 static void btu_ble_read_remote_feat_evt (UINT8 *p);
 static void btu_ble_ll_conn_param_upd_evt (UINT8 *p, UINT16 evt_len);
 static void btu_ble_ll_get_conn_param_format_err_from_contoller (UINT8 status, UINT16 handle);
@@ -360,10 +360,10 @@ void btu_hcif_process_event (UNUSED_ATTR UINT8 controller_id, BT_HDR *p_msg)
 
         switch (ble_sub_code) {
         case HCI_BLE_ADV_PKT_RPT_EVT: /* result of inquiry */
-            btu_ble_process_adv_pkt(p);
-            break;
         case HCI_BLE_ADV_DISCARD_REPORT_EVT:
-            btu_ble_process_adv_dis(p);
+        case HCI_BLE_DIRECT_ADV_EVT:
+            // These three events are directed to another specialized processing path
+            HCI_TRACE_ERROR("Unexpected HCI BLE event = 0x%02x", ble_sub_code);
             break;
         case HCI_BLE_CONN_COMPLETE_EVT:
             btu_ble_ll_conn_complete_evt(p, hci_evt_len);
@@ -453,15 +453,21 @@ void btu_hcif_send_cmd (UNUSED_ATTR UINT8 controller_id, BT_HDR *p_buf)
 
     STREAM_TO_UINT16(opcode, stream);
 
-    // Eww...horrible hackery here
-    /* If command was a VSC, then extract command_complete callback */
-    if ((opcode & HCI_GRP_VENDOR_SPECIFIC) == HCI_GRP_VENDOR_SPECIFIC
+    assert (p_buf->layer_specific == HCI_CMD_BUF_TYPE_METADATA);
+    hci_cmd_metadata_t *metadata = HCI_GET_CMD_METAMSG(p_buf);
+    metadata->command_complete_cb = btu_hcif_command_complete_evt;
+    metadata->command_status_cb = btu_hcif_command_status_evt;
+    metadata->opcode = opcode;
+
+    vsc_callback = metadata->context;
+    /* If command is not a VSC, then the context field should be empty */
+    if ((opcode & HCI_GRP_VENDOR_SPECIFIC) != HCI_GRP_VENDOR_SPECIFIC
 #if BLE_INCLUDED == TRUE
-            || (opcode == HCI_BLE_RAND)
-            || (opcode == HCI_BLE_ENCRYPT)
+            && (opcode != HCI_BLE_RAND)
+            && (opcode != HCI_BLE_ENCRYPT)
 #endif
-       ) {
-        vsc_callback = *((void **)(p_buf + 1));
+        ) {
+        assert (vsc_callback == NULL);
     }
 
     hci_layer_get_interface()->transmit_command(
@@ -474,6 +480,7 @@ void btu_hcif_send_cmd (UNUSED_ATTR UINT8 controller_id, BT_HDR *p_buf)
     btu_check_bt_sleep ();
 #endif
 }
+
 #if (BLE_50_FEATURE_SUPPORT == TRUE)
 UINT8 btu_hcif_send_cmd_sync (UINT8 controller_id, BT_HDR *p_buf)
 {
@@ -494,15 +501,22 @@ UINT8 btu_hcif_send_cmd_sync (UINT8 controller_id, BT_HDR *p_buf)
 
     sync_info->opcode = opcode;
 
-    // Eww...horrible hackery here
-    /* If command was a VSC, then extract command_complete callback */
-    if ((opcode & HCI_GRP_VENDOR_SPECIFIC) == HCI_GRP_VENDOR_SPECIFIC
+    assert (p_buf->layer_specific == HCI_CMD_BUF_TYPE_METADATA);
+    hci_cmd_metadata_t *metadata = HCI_GET_CMD_METAMSG(p_buf);
+    metadata->command_complete_cb = btu_hcif_command_complete_evt;
+    metadata->command_status_cb = btu_hcif_command_status_evt;
+    metadata->command_free_cb = NULL;
+    metadata->opcode = opcode;
+
+    vsc_callback = metadata->context;
+    /* If command is not a VSC, then the context field should be empty */
+    if ((opcode & HCI_GRP_VENDOR_SPECIFIC) != HCI_GRP_VENDOR_SPECIFIC
 #if BLE_INCLUDED == TRUE
-            || (opcode == HCI_BLE_RAND)
-            || (opcode == HCI_BLE_ENCRYPT)
+            && (opcode != HCI_BLE_RAND)
+            && (opcode != HCI_BLE_ENCRYPT)
 #endif
-       ) {
-        vsc_callback = *((void **)(p_buf + 1));
+        ) {
+        assert (vsc_callback == NULL);
     }
 
     hci_layer_get_interface()->transmit_command(
@@ -629,36 +643,18 @@ static void btu_hcif_connection_comp_evt (UINT8 *p)
     UINT16      handle;
     BD_ADDR     bda;
     UINT8       link_type;
-#if SMP_INCLUDED == TRUE
     UINT8       enc_mode;
-#endif  ///SMP_INCLUDED == TRUE
-#if BTM_SCO_INCLUDED == TRUE
-    tBTM_ESCO_DATA  esco_data;
-#endif
 
     STREAM_TO_UINT8    (status, p);
     STREAM_TO_UINT16   (handle, p);
     STREAM_TO_BDADDR   (bda, p);
     STREAM_TO_UINT8    (link_type, p);
-#if (SMP_INCLUDED == TRUE)
     STREAM_TO_UINT8    (enc_mode, p);
-#endif  ///SMP_INCLUDED == TRUE
+
     handle = HCID_GET_HANDLE (handle);
 
-    if (link_type == HCI_LINK_TYPE_ACL) {
-#if (SMP_INCLUDED == TRUE)
-        btm_sec_connected (bda, handle, status, enc_mode);
-#endif  ///SMP_INCLUDED == TRUE
-        l2c_link_hci_conn_comp (status, handle, bda);
-    }
-#if BTM_SCO_INCLUDED == TRUE
-    else {
-        memset(&esco_data, 0, sizeof(tBTM_ESCO_DATA));
-        /* esco_data.link_type = HCI_LINK_TYPE_SCO; already zero */
-        memcpy (esco_data.bd_addr, bda, BD_ADDR_LEN);
-        btm_sco_connected (status, bda, handle, &esco_data);
-    }
-#endif /* BTM_SCO_INCLUDED */
+    btm_acl_connected(bda, handle, link_type, enc_mode, status);
+
     HCI_TRACE_WARNING("hcif conn complete: hdl 0x%x, st 0x%x", handle, status);
 }
 
@@ -716,20 +712,9 @@ static void btu_hcif_disconnection_comp_evt (UINT8 *p)
 
     handle = HCID_GET_HANDLE (handle);
 
-    HCI_TRACE_WARNING("hcif disc complete: hdl 0x%x, rsn 0x%x", handle, reason);
+    btm_acl_disconnected(handle, reason);
 
-#if BTM_SCO_INCLUDED == TRUE
-    /* If L2CAP doesn't know about it, send it to SCO */
-    if (!l2c_link_hci_disc_comp (handle, reason)) {
-        btm_sco_removed (handle, reason);
-    }
-#else
-    l2c_link_hci_disc_comp (handle, reason);
-#endif /* BTM_SCO_INCLUDED */
-#if (SMP_INCLUDED == TRUE)
-    /* Notify security manager */
-    btm_sec_disconnected (handle, reason);
-#endif  ///SMP_INCLUDED == TRUE
+    HCI_TRACE_WARNING("hcif disc complete: hdl 0x%x, rsn 0x%x", handle, reason);
 }
 
 /*******************************************************************************
@@ -1226,7 +1211,9 @@ static void btu_hcif_command_complete_evt(BT_HDR *response, void *context)
 
     event->event = BTU_POST_TO_TASK_NO_GOOD_HORRIBLE_HACK;
 
-    btu_task_post(SIG_BTU_HCI_MSG, event, OSI_THREAD_MAX_TIMEOUT);
+    if (btu_task_post(SIG_BTU_HCI_MSG, event, OSI_THREAD_MAX_TIMEOUT) == false) {
+        osi_free(event);
+    }
 }
 
 
@@ -1436,7 +1423,11 @@ static void btu_hcif_command_status_evt_on_task(BT_HDR *event)
         stream,
         hack->context);
 
-    osi_free(hack->command);
+    // check the HCI command integrity: opcode
+    hci_cmd_metadata_t *metadata = HCI_GET_CMD_METAMSG(hack->command);
+    assert(metadata->opcode == opcode);
+
+    HCI_FREE_CMD_BUF(hack->command);
     osi_free(event);
 }
 
@@ -1452,7 +1443,9 @@ static void btu_hcif_command_status_evt(uint8_t status, BT_HDR *command, void *c
 
     event->event = BTU_POST_TO_TASK_NO_GOOD_HORRIBLE_HACK;
 
-    btu_task_post(SIG_BTU_HCI_MSG, event, OSI_THREAD_MAX_TIMEOUT);
+    if (btu_task_post(SIG_BTU_HCI_MSG, event, OSI_THREAD_MAX_TIMEOUT) == false) {
+        osi_free(event);
+    }
 }
 
 /*******************************************************************************
@@ -2014,18 +2007,6 @@ static void btu_hcif_encryption_key_refresh_cmpl_evt (UINT8 *p)
     btm_sec_encrypt_change (handle, status, enc_enable);
 }
 #endif  ///SMP_INCLUDED == TRUE
-
-static void btu_ble_process_adv_pkt (UINT8 *p)
-{
-    HCI_TRACE_DEBUG("btu_ble_process_adv_pkt\n");
-
-    btm_ble_process_adv_pkt(p);
-}
-
-static void btu_ble_process_adv_dis(UINT8 *p)
-{
-    btm_ble_process_adv_discard_evt(p);
-}
 
 static void btu_ble_ll_conn_complete_evt ( UINT8 *p, UINT16 evt_len)
 {

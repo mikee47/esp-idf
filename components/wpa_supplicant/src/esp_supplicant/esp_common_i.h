@@ -11,7 +11,7 @@
 
 struct wpa_funcs;
 
-#ifdef ROAMING_SUPPORT
+#ifdef CONFIG_WPA_11KV_SUPPORT
 struct ieee_mgmt_frame {
 	u8 sender[ETH_ALEN];
 	u8 channel;
@@ -39,26 +39,15 @@ enum SIG_SUPPLICANT {
 int esp_supplicant_post_evt(uint32_t evt_id, uint32_t data);
 void esp_set_rm_enabled_ie(void);
 void esp_get_tx_power(uint8_t *tx_power);
-int esp_supplicant_common_init(struct wpa_funcs *wpa_cb);
-void esp_supplicant_common_deinit(void);
 #else
 
 #include "esp_rrm.h"
 #include "esp_wnm.h"
 
 static inline void esp_set_rm_enabled_ie(void) {}
-int esp_rrm_send_neighbor_rep_request(neighbor_rep_request_cb cb,
-				      void *cb_ctx)
-{
-	return -1;
-}
-
-int esp_wnm_send_bss_transition_mgmt_query(enum btm_query_reason query_reason,
-					   const char *btm_candidates,
-					   int cand_list)
-{
-	return -1;
-}
 
 #endif
+int esp_supplicant_common_init(struct wpa_funcs *wpa_cb);
+void esp_supplicant_common_deinit(void);
+void esp_set_assoc_ie(uint8_t *bssid, const u8 *ies, size_t ies_len, bool add_mdie);
 #endif

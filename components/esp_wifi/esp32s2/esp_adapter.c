@@ -432,8 +432,7 @@ static void IRAM_ATTR timer_arm_us_wrapper(void *ptimer, uint32_t us, bool repea
 
 static void wifi_reset_mac_wrapper(void)
 {
-    DPORT_SET_PERI_REG_MASK(DPORT_CORE_RST_EN_REG, DPORT_MAC_RST);
-    DPORT_CLEAR_PERI_REG_MASK(DPORT_CORE_RST_EN_REG, DPORT_MAC_RST);
+    periph_module_reset(PERIPH_WIFI_MODULE);
 }
 
 static void wifi_clock_enable_wrapper(void)
@@ -697,6 +696,8 @@ wifi_osi_funcs_t g_wifi_osi_funcs = {
     ._wifi_apb80m_release = wifi_apb80m_release_wrapper,
     ._phy_disable = esp_phy_disable,
     ._phy_enable = esp_phy_enable,
+    ._phy_common_clock_enable = esp_phy_common_clock_enable,
+    ._phy_common_clock_disable = esp_phy_common_clock_disable,
     ._phy_update_country_info = esp_phy_update_country_info,
     ._read_mac = esp_read_mac,
     ._timer_arm = timer_arm_wrapper,

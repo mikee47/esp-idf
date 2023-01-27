@@ -86,6 +86,9 @@
 #define SOC_GPIO_VALID_OUTPUT_GPIO_MASK SOC_GPIO_VALID_GPIO_MASK
 #define SOC_GPIO_DEEP_SLEEP_WAKEUP_VALID_GPIO_MASK        (0ULL | BIT0 | BIT1 | BIT2 | BIT3 | BIT4 | BIT5)
 
+// digital I/O pad powered by VDD3P3_CPU or VDD_SPI(GPIO_NUM_6~GPIO_NUM_21)
+#define SOC_GPIO_VALID_DIGITAL_IO_PAD_MASK 0x00000000003FFFC0ULL
+
 // Support to configure sleep status
 #define SOC_GPIO_SUPPORT_SLP_SWITCH  (1)
 
@@ -140,6 +143,8 @@
 
 #define SOC_RTC_CNTL_CPU_PD_RETENTION_MEM_SIZE  (SOC_RTC_CNTL_CPU_PD_REG_FILE_NUM * (SOC_RTC_CNTL_CPU_PD_DMA_BUS_WIDTH >> 3))
 
+#define SOC_RTC_SLOW_CLOCK_SUPPORT_8MD256       (1)
+
 /*-------------------------- RTCIO CAPS --------------------------------------*/
 /* No dedicated RTCIO subsystem on ESP32-C3. RTC functions are still supported
  * for hold, wake & 32kHz crystal functions - via rtc_cntl_reg */
@@ -175,6 +180,7 @@
 /*-------------------------- SPI CAPS ----------------------------------------*/
 #define SOC_SPI_PERIPH_NUM          2
 #define SOC_SPI_PERIPH_CS_NUM(i)    6
+#define SOC_SPI_MAX_CS_NUM          6
 
 #define SOC_SPI_MAXIMUM_BUFFER_SIZE     64
 
@@ -268,3 +274,6 @@
 #define SOC_PM_SUPPORT_WIFI_PD          (1)
 
 #define SOC_PM_SUPPORT_BT_PD            (1)
+
+/*------------------------------ BLE --------------------------------------------*/
+#define SOC_BLE_UPDATE_OWN_RPA  (1)

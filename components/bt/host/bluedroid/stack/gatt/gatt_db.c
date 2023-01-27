@@ -34,7 +34,6 @@
 #include "gatt_int.h"
 #include "stack/l2c_api.h"
 #include "btm_int.h"
-#include "common/bte_appl.h"
 
 /********************************************************************************
 **              L O C A L    F U N C T I O N     P R O T O T Y P E S            *
@@ -125,14 +124,10 @@ static tGATT_STATUS gatts_check_attr_readability(tGATT_ATTR16 *p_attr,
     tGATT_PERM      perm = p_attr->permission;
 
     UNUSED(offset);
-#if SMP_INCLUDED == TRUE
-    min_key_size = bte_appl_cfg.ble_appl_enc_key_size;
-#else
     min_key_size = (((perm & GATT_ENCRYPT_KEY_SIZE_MASK) >> 12));
     if (min_key_size != 0 ) {
         min_key_size += 6;
     }
-#endif
 
     if (!(perm & GATT_READ_ALLOWED)) {
         GATT_TRACE_ERROR( "GATT_READ_NOT_PERMIT\n");
@@ -976,7 +971,7 @@ tGATT_STATUS gatts_write_attr_value_by_handle(tGATT_SVC_DB *p_db,
                     memcpy(p_attr->p_value->attr_val.attr_val + offset, p_value, len);
                     p_attr->p_value->attr_val.attr_len = len + offset;
                     return GATT_SUCCESS;
-                } else if (p_attr->p_value->attr_val.attr_max_len < offset + len){
+                } else if (p_attr->p_value && p_attr->p_value->attr_val.attr_max_len < offset + len){
                     GATT_TRACE_DEBUG("Remote device try to write with a length larger then attribute's max length\n");
                     return GATT_INVALID_ATTR_LEN;
                 } else if ((p_attr->p_value == NULL) || (p_attr->p_value->attr_val.attr_val == NULL)){
@@ -1077,14 +1072,10 @@ tGATT_STATUS gatts_write_attr_perm_check (tGATT_SVC_DB *p_db, UINT8 op_code,
         while (p_attr != NULL) {
             if (p_attr->handle == handle) {
                 perm = p_attr->permission;
-            #if SMP_INCLUDED == TRUE
-                min_key_size = bte_appl_cfg.ble_appl_enc_key_size;
-            #else
                 min_key_size = (((perm & GATT_ENCRYPT_KEY_SIZE_MASK) >> 12));
                 if (min_key_size != 0 ) {
                     min_key_size += 6;
                 }
-            #endif
                 GATT_TRACE_DEBUG( "gatts_write_attr_perm_check p_attr->permission =0x%04x min_key_size==0x%04x",
                                   p_attr->permission,
                                   min_key_size);

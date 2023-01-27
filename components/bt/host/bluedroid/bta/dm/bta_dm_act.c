@@ -71,6 +71,7 @@ static BOOLEAN bta_dm_check_av(UINT16 event);
 static void bta_dm_bl_change_cback (tBTM_BL_EVENT_DATA *p_data);
 
 
+static void bta_dm_acl_link_stat_cback(tBTM_ACL_LINK_STAT_EVENT_DATA *p_data);
 static void bta_dm_policy_cback(tBTA_SYS_CONN_STATUS status, UINT8 id, UINT8 app_id, BD_ADDR peer_addr);
 
 /* Extended Inquiry Response */
@@ -511,6 +512,7 @@ static void bta_dm_sys_hw_cback( tBTA_SYS_HW_EVT status )
         BTM_SetDefaultLinkPolicy(bta_dm_cb.cur_policy);
 #endif
         BTM_RegBusyLevelNotif (bta_dm_bl_change_cback, NULL, BTM_BL_UPDATE_MASK | BTM_BL_ROLE_CHG_MASK);
+        BTM_RegAclLinkStatNotif (bta_dm_acl_link_stat_cback);
 
 #if BLE_VND_INCLUDED == TRUE
         BTM_BleReadControllerFeatures (bta_dm_ctrl_features_rd_cmpl_cback);
@@ -2923,12 +2925,12 @@ static UINT8 bta_dm_authorize_cback (BD_ADDR bd_addr, DEV_CLASS dev_class, BD_NA
             bytes_to_copy = (p_result->length < (BD_NAME_LEN - 1))
                             ? p_result->length : (BD_NAME_LEN - 1);
             memcpy(sec_event.cfm_req.bd_name, p_result->remote_bd_name, bytes_to_copy);
-            sec_event.pin_req.bd_name[BD_NAME_LEN - 1] = 0;
+            sec_event.cfm_req.bd_name[BD_NAME_LEN - 1] = 0;
         } else { /* No name found */
             sec_event.cfm_req.bd_name[0] = 0;
         }
 
-        sec_event.key_notif.passkey    = bta_dm_cb.num_val; /* get PIN code numeric number */
+        sec_event.cfm_req.num_val    = bta_dm_cb.num_val; /* get PIN code numeric number */
 
         /* 1 additional event data fields for this event */
         sec_event.cfm_req.just_works = bta_dm_cb.just_works;
@@ -3332,6 +3334,45 @@ static void bta_dm_bl_change_cback (tBTM_BL_EVENT_DATA *p_data)
 
     }
 
+}
+
+/*******************************************************************************
+**
+** Function         bta_dm_acl_link_stat_cback
+**
+** Description      Callback from btm to report acl link status
+**
+** Returns          void
+**
+*******************************************************************************/
+static void bta_dm_acl_link_stat_cback(tBTM_ACL_LINK_STAT_EVENT_DATA *p_data)
+{
+    tBTA_DM_SEC sec_event;
+    memset(&sec_event, 0, sizeof(tBTA_DM_SEC));
+    sec_event.acl_link_stat.event = p_data->event;
+
+    switch (sec_event.acl_link_stat.event) {
+    case BTA_ACL_LINK_STAT_CONN_CMPL: {
+        sec_event.acl_link_stat.link_act.conn_cmpl.status = p_data->link_act.conn_cmpl.status;
+        sec_event.acl_link_stat.link_act.conn_cmpl.handle = p_data->link_act.conn_cmpl.handle;
+        bdcpy(sec_event.acl_link_stat.link_act.conn_cmpl.bd_addr, p_data->link_act.conn_cmpl.bd_addr);
+        break;
+    }
+    case BTA_ACL_LINK_STAT_DISCONN_CMPL: {
+        sec_event.acl_link_stat.link_act.disconn_cmpl.reason = p_data->link_act.disconn_cmpl.reason;
+        sec_event.acl_link_stat.link_act.disconn_cmpl.handle = p_data->link_act.disconn_cmpl.handle;
+        bdcpy(sec_event.acl_link_stat.link_act.disconn_cmpl.bd_addr, p_data->link_act.disconn_cmpl.bd_addr);
+        break;
+    }
+    default: {
+        APPL_TRACE_WARNING("bta_dm_acl_link_stat: invalid event %d", sec_event.acl_link_stat.event);
+        return;
+    }
+    }
+
+    if (bta_dm_cb.p_sec_cback) {
+        (*bta_dm_cb.p_sec_cback)(BTA_DM_ACL_LINK_STAT_EVT, &sec_event);
+    }
 }
 
 /*******************************************************************************

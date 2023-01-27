@@ -98,6 +98,33 @@ static int wpa_key_mgmt_to_bitfield(const u8 *s)
 	return 0;
 }
 #endif /* CONFIG_NO_WPA2 */
+
+int wpa_cipher_valid_mgmt_group(int cipher)
+{
+	return cipher == WPA_CIPHER_AES_128_CMAC ||
+		cipher == WPA_CIPHER_BIP_GMAC_128 ||
+		cipher == WPA_CIPHER_BIP_GMAC_256;
+}
+
+int wpa_parse_wpa_ie_rsnxe(const u8 *rsnxe_ie, size_t rsnxe_ie_len,
+             struct wpa_ie_data *data)
+{
+	uint8_t rsnxe_capa = 0;
+	uint8_t sae_pwe = esp_wifi_sta_get_config_sae_pwe_h2e_internal();
+	memset(data, 0, sizeof(*data));
+
+	if (rsnxe_ie_len < 1) {
+		return -1;
+	}
+	rsnxe_capa = rsnxe_ie[2];
+	if (sae_pwe == 1 && !(rsnxe_capa & BIT(WLAN_RSNX_CAPAB_SAE_H2E))){
+		wpa_printf(MSG_ERROR, "SAE H2E required, but not supported by the AP");
+		return -1;
+	}
+	data->rsnxe_capa = rsnxe_capa;
+	return 0;
+}
+
 /**
  * wpa_parse_wpa_ie_rsn - Parse RSN IE
  * @rsn_ie: Buffer containing RSN IE
@@ -436,7 +463,8 @@ int wpa_compare_rsn_ie(int ft_initial_assoc,
 		    ie1d.group_cipher == ie2d.group_cipher &&
 		    ie1d.key_mgmt == ie2d.key_mgmt &&
 		    ie1d.capabilities == ie2d.capabilities &&
-		    ie1d.mgmt_group_cipher == ie2d.mgmt_group_cipher)
+		    ie1d.mgmt_group_cipher == ie2d.mgmt_group_cipher &&
+		    ie1d.rsnxe_capa == ie2d.rsnxe_capa)
 			return 0;
 	}
 #endif /* CONFIG_IEEE80211R */
@@ -488,10 +516,6 @@ const char * wpa_cipher_txt(int cipher)
  * PTK = PRF-X(PMK, "Pairwise key expansion",
  *             Min(AA, SA) || Max(AA, SA) ||
  *             Min(ANonce, SNonce) || Max(ANonce, SNonce))
- *
- * STK = PRF-X(SMK, "Peer key expansion",
- *             Min(MAC_I, MAC_P) || Max(MAC_I, MAC_P) ||
- *             Min(INonce, PNonce) || Max(INonce, PNonce))
  */
 void wpa_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const char *label,
 		    const u8 *addr1, const u8 *addr2,
@@ -573,6 +597,7 @@ int wpa_cipher_key_len(int cipher)
 	switch (cipher) {
 	case WPA_CIPHER_CCMP:
 	case WPA_CIPHER_GCMP:
+	case WPA_CIPHER_AES_128_CMAC:
 		return 16;
 	case WPA_CIPHER_TKIP:
 		return 32;
@@ -599,6 +624,14 @@ int wpa_cipher_to_alg(int cipher)
 		return WIFI_WPA_ALG_WEP;
 	}
 	return WIFI_WPA_ALG_NONE;
+}
+
+int wpa_cipher_valid_pairwise(int cipher)
+{
+    return cipher == WPA_CIPHER_GCMP_256 ||
+        cipher == WPA_CIPHER_CCMP ||
+        cipher == WPA_CIPHER_GCMP ||
+        cipher == WPA_CIPHER_TKIP;
 }
 
 u32 wpa_cipher_to_suite(int proto, int cipher)

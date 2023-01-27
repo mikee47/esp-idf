@@ -49,7 +49,10 @@ extern "C" {
 #define RTC_SLOW_CLK_8MD256_CAL_TIMEOUT_THRES(cycles)  (cycles << 12)
 #define RTC_SLOW_CLK_150K_CAL_TIMEOUT_THRES(cycles)  (cycles << 10)
 
-#define RTC_SLOW_CLK_FREQ_90K      90000
+// On esp32c3, RC_SLOW_CLK has a freq of ~136kHz
+// `90K` does not mean the actual freq, it only indicates the clock source is RC_SLOW_CLK.
+// Macro name `RTC_SLOW_CLK_FREQ_90K` is unchanged for compatibility reason
+#define RTC_SLOW_CLK_FREQ_90K       136000
 #define RTC_SLOW_CLK_FREQ_8MD256    (RTC_FAST_CLK_FREQ_APPROX / 256)
 #define RTC_SLOW_CLK_FREQ_32K       32768
 
@@ -100,6 +103,7 @@ extern "C" {
 #define RTC_CNTL_WAKEUP_DELAY_CYCLES            (5)
 #define RTC_CNTL_OTHER_BLOCKS_POWERUP_CYCLES    (1)
 #define RTC_CNTL_OTHER_BLOCKS_WAIT_CYCLES       (1)
+#define RTC_CNTL_MIN_SLP_VAL_MIN                (2)
 
 /*
 set sleep_init default param
@@ -173,7 +177,7 @@ typedef struct rtc_cpu_freq_config_s {
  * @brief RTC SLOW_CLK frequency values
  */
 typedef enum {
-    RTC_SLOW_FREQ_RTC = 0,      //!< Internal 150 kHz RC oscillator
+    RTC_SLOW_FREQ_RTC = 0,      //!< Internal 136 kHz RC oscillator
     RTC_SLOW_FREQ_32K_XTAL = 1, //!< External 32 kHz XTAL
     RTC_SLOW_FREQ_8MD256 = 2,   //!< Internal 8 MHz RC oscillator, divided by 256
 } rtc_slow_freq_t;
@@ -213,7 +217,7 @@ typedef struct {
     rtc_slow_freq_t slow_freq : 2;  //!< RTC_SLOW_CLK frequency to set
     uint32_t clk_rtc_clk_div : 8;
     uint32_t clk_8m_clk_div : 3;        //!< RTC 8M clock divider (division is by clk_8m_div+1, i.e. 0 means 8MHz frequency)
-    uint32_t slow_clk_dcap : 8;     //!< RTC 150k clock adjustment parameter (higher value leads to lower frequency)
+    uint32_t slow_clk_dcap : 8;     //!< RTC 136k clock adjustment parameter (higher value leads to lower frequency)
     uint32_t clk_8m_dfreq : 8;      //!< RTC 8m clock adjustment parameter (higher value leads to higher frequency)
 } rtc_clk_config_t;
 
@@ -394,7 +398,7 @@ rtc_slow_freq_t rtc_clk_slow_freq_get(void);
 /**
  * @brief Get the approximate frequency of RTC_SLOW_CLK, in Hz
  *
- * - if RTC_SLOW_FREQ_RTC is selected, returns ~150000
+ * - if RTC_SLOW_FREQ_RTC is selected, returns 136000
  * - if RTC_SLOW_FREQ_32K_XTAL is selected, returns 32768
  * - if RTC_SLOW_FREQ_8MD256 is selected, returns ~33000
  *
@@ -506,6 +510,11 @@ uint32_t rtc_clk_cal_internal(rtc_cal_sel_t cal_clk, uint32_t slowclk_cycles);
  * 32k XTAL is being calibrated, but the oscillator has not started up (due to
  * incorrect loading capacitance, board design issue, or lack of 32 XTAL on board).
  *
+ * @note When 32k CLK is being calibrated, this function will check the accuracy
+ * of the clock. Since the xtal 32k or ext osc 32k is generally very stable, if
+ * the check fails, then consider this an invalid 32k clock and return 0. This
+ * check can filter some jamming signal.
+ *
  * @param cal_clk  clock to be measured
  * @param slow_clk_cycles  number of slow clock cycles to average
  * @return average slow clock period in microseconds, Q13.19 fixed point format,
@@ -580,6 +589,11 @@ void rtc_dig_clk8m_enable(void);
  * This function is used to disable the digital rtc 8M clock, which is only used to support peripherals.
  */
 void rtc_dig_clk8m_disable(void);
+
+/**
+ * @brief Get whether the rtc digital 8M clock is enabled
+ */
+bool rtc_dig_8m_enabled(void);
 
 /**
  * @brief Calculate the real clock value after the clock calibration
@@ -665,7 +679,7 @@ typedef struct {
     .wifi_pd_en = ((sleep_flags) & RTC_SLEEP_PD_WIFI) ? 1 : 0, \
     .bt_pd_en = ((sleep_flags) & RTC_SLEEP_PD_BT) ? 1 : 0, \
     .cpu_pd_en = ((sleep_flags) & RTC_SLEEP_PD_CPU) ? 1 : 0, \
-    .int_8m_pd_en = is_dslp(sleep_flags) ? 1 : ((sleep_flags) & RTC_SLEEP_PD_INT_8M) ? 1 : 0, \
+    .int_8m_pd_en = ((sleep_flags) & RTC_SLEEP_PD_INT_8M) ? 1 : 0, \
     .dig_peri_pd_en = ((sleep_flags) & RTC_SLEEP_PD_DIG_PERIPH) ? 1 : 0, \
     .deep_slp = ((sleep_flags) & RTC_SLEEP_PD_DIG) ? 1 : 0, \
     .wdt_flashboot_mod_en = 0, \
@@ -678,7 +692,7 @@ typedef struct {
                    : !((sleep_flags) & RTC_SLEEP_PD_INT_8M) ? RTC_CNTL_DBIAS_1V10 \
                    : RTC_CNTL_DBIAS_SLP, \
     .vddsdio_pd_en = ((sleep_flags) & RTC_SLEEP_PD_VDDSDIO) ? 1 : 0, \
-    .xtal_fpu = is_dslp(sleep_flags) ? 0 : ((sleep_flags) & RTC_SLEEP_PD_XTAL) ? 0 : 1, \
+    .xtal_fpu = ((sleep_flags) & RTC_SLEEP_PD_XTAL) ? 0 : 1, \
     .deep_slp_reject = 1, \
     .light_slp_reject = 1 \
 };

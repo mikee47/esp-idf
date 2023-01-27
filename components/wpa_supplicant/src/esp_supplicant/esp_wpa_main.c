@@ -1,16 +1,8 @@
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "utils/includes.h"
 #include "utils/common.h"
@@ -201,6 +193,7 @@ int wpa_parse_wpa_ie_wrapper(const u8 *wpa_ie, size_t wpa_ie_len, wifi_wpa_ie_t 
     data->capabilities = ie.capabilities;
     data->pmkid = ie.pmkid;
     data->mgmt_group_cipher = cipher_type_map_supp_to_public(ie.mgmt_group_cipher);
+    data->rsnxe_capa = ie.rsnxe_capa;
 
     return ret;
 }
@@ -220,29 +213,19 @@ static void wpa_sta_disconnected_cb(uint8_t reason_code)
         case WIFI_REASON_HANDSHAKE_TIMEOUT:
             esp_wpa3_free_sae_data();
             wpa_sta_clear_curr_pmksa();
+            wpa_sm_notify_disassoc(&gWpaSm);
             break;
         default:
             break;
     }
 }
 
-#ifndef ROAMING_SUPPORT
-static inline int esp_supplicant_common_init(struct wpa_funcs *wpa_cb)
-{
-	wpa_cb->wpa_sta_rx_mgmt = NULL;
-	return 0;
-}
-static inline void esp_supplicant_common_deinit(void)
-{
-}
-#endif
-
 int esp_supplicant_init(void)
 {
     int ret = ESP_OK;
     struct wpa_funcs *wpa_cb;
 
-    wpa_cb = (struct wpa_funcs *)os_malloc(sizeof(struct wpa_funcs));
+    wpa_cb = (struct wpa_funcs *)os_zalloc(sizeof(struct wpa_funcs));
     if (!wpa_cb) {
         return ESP_ERR_NO_MEM;
     }
@@ -267,6 +250,7 @@ int esp_supplicant_init(void)
     wpa_cb->wpa_config_bss = NULL;//wpa_config_bss;
     wpa_cb->wpa_michael_mic_failure = wpa_michael_mic_failure;
     wpa_cb->wpa_config_done = wpa_config_done;
+    wpa_cb->wpa_sta_set_ap_rsnxe = wpa_sm_set_ap_rsnxe;
 
     esp_wifi_register_wpa3_cb(wpa_cb);
     ret = esp_supplicant_common_init(wpa_cb);

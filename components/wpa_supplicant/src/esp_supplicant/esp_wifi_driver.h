@@ -113,6 +113,7 @@ typedef struct {
     size_t num_pmkid;
     const u8 *pmkid;
     int mgmt_group_cipher;
+    uint8_t rsnxe_capa;
 } wifi_wpa_ie_t;
 
 struct wpa_funcs {
@@ -137,6 +138,7 @@ struct wpa_funcs {
     int (*wpa3_parse_sae_msg)(uint8_t *buf, size_t len, uint32_t type, uint16_t status);
     int (*wpa_sta_rx_mgmt)(u8 type, u8 *frame, size_t len, u8 *sender, u32 rssi, u8 channel, u64 current_tsf);
     void (*wpa_config_done)(void);
+    int (*wpa_sta_set_ap_rsnxe)(const u8 *rsnxe, size_t rsnxe_ie_len);
 };
 
 struct wpa2_funcs {
@@ -180,11 +182,11 @@ typedef struct {
     uint32_t arg_size;
 } wifi_ipc_config_t;
 
-#define WPA_IGTK_LEN 16
+#define WPA_IGTK_MAX_LEN 32
 typedef struct {
     uint8_t keyid[2];
     uint8_t pn[6];
-    uint8_t igtk[WPA_IGTK_LEN];
+    uint8_t igtk[WPA_IGTK_MAX_LEN];
 } wifi_wpa_igtk_t;
 
 typedef struct {
@@ -274,5 +276,8 @@ esp_err_t esp_wifi_action_tx_req(uint8_t type, uint8_t channel,
                                  uint32_t wait_time_ms, const wifi_action_tx_req_t *req);
 esp_err_t esp_wifi_remain_on_channel(uint8_t ifx, uint8_t type, uint8_t channel,
                                      uint32_t wait_time_ms, wifi_action_rx_cb_t rx_cb);
+uint8_t esp_wifi_sta_get_config_sae_pwe_h2e_internal(void);
+uint8_t esp_wifi_sta_get_use_h2e_internal(void);
+void esp_wifi_sta_disable_wpa2_authmode_internal(void);
 
 #endif /* _ESP_WIFI_DRIVER_H_ */

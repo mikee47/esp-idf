@@ -82,10 +82,15 @@
     - .component_ut_template
     - .rules:tests:unit_test_32
 
-.component_ut_s2_template: # unused yet
+.component_ut_s2_template:
   extends:
     - .component_ut_template
     - .rules:tests:unit_test_s2
+
+.component_ut_c3_template:
+  extends:
+    - .component_ut_template
+    - .rules:tests:unit_test_c3
 
 .unit_test_template:
   extends:
@@ -114,6 +119,8 @@
   extends:
     - .target_test_job_template
     - .rules:tests:integration_test
+    - .before_script_lesser
+  image: ${CI_INTEGRATION_TEST_ENV_IMAGE}
   needs:
     - assign_test
   variables:
@@ -124,21 +131,23 @@
     CONFIG_FILE_PATH: "${CI_PROJECT_DIR}/tools/ci/integration_test/test_configs"
     PREPARE_TEST_BIN_SCRIPT: "${CI_PROJECT_DIR}/tools/ci/integration_test/prepare_test_bins.py"
     CI_RUNNER_SCRIPT: "${CI_PROJECT_DIR}/auto_test_script/bin/CIRunner.py"
-    PYTHONPATH: ${CI_PROJECT_DIR}/auto_test_script/packages
-    # auto_test_script only supports python 3.7.x
-    PYTHON_VER: 3.7.7
+    PYTHONPATH: "${CI_PROJECT_DIR}/auto_test_script/packages:${CI_PROJECT_DIR}/tools/ci/python_packages:${PYTHONPATH}"
+    INITIAL_CONDITION_RETRY_COUNT: "1"
+    GIT_LFS_SKIP_SMUDGE: 1
   script:
     - *define_config_file_name
     # first test if config file exists, if not exist, exit 0
     - test -e $CONFIG_FILE || exit 0
+    - add_gitlab_ssh_keys
     # clone local test env configs
     - retry_failed git clone $TEST_ENV_CONFIG_REPO
     - python $CHECKOUT_REF_SCRIPT ci-test-runner-configs ci-test-runner-configs
     # clone test bench
-    # can not retry if downing git lfs files failed, so using empty_branch first.
-    - retry_failed git clone ${CI_AUTO_TEST_SCRIPT_REPO_URL} -b empty_branch
-    - retry_failed git -C auto_test_script checkout -f ${CI_AUTO_TEST_SCRIPT_REPO_BRANCH}
-    - python $CHECKOUT_REF_SCRIPT auto_test_script auto_test_script --customized_only
+    - retry_failed git clone ${CI_AUTO_TEST_SCRIPT_REPO_URL} auto_test_script
+    - python $CHECKOUT_REF_SCRIPT auto_test_script auto_test_script
+    - cd auto_test_script
+    - ./tools/ci/setup_idfci.sh
+    # Merge known issues
     - cat ${INTEGRATION_TEST_DIR}/KnownIssues >> ${TEST_CASE_FILE_PATH}/KnownIssues
     # run test
     - python ${PREPARE_TEST_BIN_SCRIPT} $CONFIG_FILE
@@ -359,6 +368,18 @@ component_ut_test_001:
   extends: .component_ut_32_template
   tags:
     - ESP32
+    - COMPONENT_UT_GENERIC
+
+component_ut_test_s2_generic:
+  extends: .component_ut_s2_template
+  tags:
+    - ESP32S2
+    - COMPONENT_UT_GENERIC
+
+component_ut_test_c3_generic:
+  extends: .component_ut_c3_template
+  tags:
+    - ESP32C3
     - COMPONENT_UT_GENERIC
 
 UT_001:
@@ -632,16 +653,16 @@ nvs_compatible_test:
     - *define_config_file_name
     # first test if config file exists, if not exist, exit 0
     - test -e $CONFIG_FILE || exit 0
+    - add_gitlab_ssh_keys
     # clone local test env configs
     - retry_failed git clone $TEST_ENV_CONFIG_REPO
     - python $CHECKOUT_REF_SCRIPT ci-test-runner-configs ci-test-runner-configs
     # clone test bench
-    # can not retry if downing git lfs files failed, so using empty_branch first.
-    - retry_failed git clone ${CI_AUTO_TEST_SCRIPT_REPO_URL} -b empty_branch
-    - retry_failed git -C auto_test_script checkout -f ${CI_AUTO_TEST_SCRIPT_REPO_BRANCH}
-    - python $CHECKOUT_REF_SCRIPT auto_test_script auto_test_script --customized_only
-    # prepare nvs bins
+    - retry_failed git clone ${CI_AUTO_TEST_SCRIPT_REPO_URL} auto_test_script
+    - python $CHECKOUT_REF_SCRIPT auto_test_script auto_test_script
     - cd auto_test_script
+    - ./tools/ci/setup_idfci.sh
+    # prepare nvs bins
     - ./tools/prepare_nvs_bin.sh
     # run test
     - python ${PREPARE_TEST_BIN_SCRIPT} $CONFIG_FILE
@@ -666,6 +687,28 @@ IT_003:
   tags:
     - ESP32_IDF
     - SSC_T2_5
+
+IT_T5_BT_Simple:
+  extends: .integration_test_template
+  parallel: 3
+  tags:
+    - ESP32_IDF
+    - SSC_T5_BT_Simple
+
+IT_T2_BT_Simple:
+  extends: .integration_test_template
+  parallel: 6
+  tags:
+    - ESP32_IDF
+    - SSC_T2_BT_Simple
+
+IT_T1_BT_Dongle:
+  extends: .integration_test_template
+  image: gitlab.espressif.cn:5050/qa/dockerfiles/integration-test-env-dbg:1
+  parallel: 2
+  tags:
+    - ESP32_IDF
+    - SSC_T1_BT_Dongle
 
 IT_005:
   extends: .integration_test_template
@@ -766,3 +809,25 @@ IT_C3_001:
   tags:
     - ESP32C3_IDF
     - SSC_T2_5
+
+IT_C3_T2_BT_Simple:
+  extends: .integration_test_esp32c3_template
+  parallel: 11
+  tags:
+    - ESP32C3_IDF
+    - SSC_T2_BT_Simple
+
+IT_C3_T5_BT_Simple:
+  extends: .integration_test_esp32c3_template
+  parallel: 5
+  tags:
+    - ESP32C3_IDF
+    - SSC_T5_BT_Simple
+
+IT_C3_T1_BT_Dongle:
+  extends: .integration_test_esp32c3_template
+  image: gitlab.espressif.cn:5050/qa/dockerfiles/integration-test-env-dbg:1
+  parallel: 2
+  tags:
+    - ESP32C3_IDF
+    - SSC_T1_BT_Dongle

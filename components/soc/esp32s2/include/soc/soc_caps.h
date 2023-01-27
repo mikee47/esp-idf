@@ -63,6 +63,7 @@
 #define SOC_ADC_MAX_CHANNEL_NUM         (10)
 #define SOC_ADC_MAX_BITWIDTH            (13)
 #define SOC_ADC_HW_CALIBRATION_V1       (1) /*!< support HW offset calibration */
+#define SOC_RTC_SLOW_CLOCK_SUPPORT_8MD256       (1)
 
 
 /**
@@ -106,6 +107,9 @@
 #define SOC_GPIO_VALID_GPIO_MASK             (0x7FFFFFFFFFFFULL & ~(0ULL | BIT22 | BIT23 | BIT24 | BIT25))
 // GPIO 46 is input only
 #define SOC_GPIO_VALID_OUTPUT_GPIO_MASK      (SOC_GPIO_VALID_GPIO_MASK & ~(0ULL | BIT46))
+
+// digital I/O pad powered by VDD3P3_CPU or VDD_SPI(GPIO_NUM_26~GPIO_NUM_46)
+#define SOC_GPIO_VALID_DIGITAL_IO_PAD_MASK  0x00007FFFFC000000ULL
 
 // Support to configure slept status
 #define SOC_GPIO_SUPPORT_SLP_SWITCH  (1)
@@ -183,9 +187,10 @@
 #define SOC_SIGMADELTA_CHANNEL_NUM (8) // 8 channels
 
 /*-------------------------- SPI CAPS ----------------------------------------*/
-#define SOC_SPI_PERIPH_NUM      3
-#define SOC_SPI_DMA_CHAN_NUM    3
+#define SOC_SPI_PERIPH_NUM          3
+#define SOC_SPI_DMA_CHAN_NUM        3
 #define SOC_SPI_PERIPH_CS_NUM(i)    (((i)==0)? 2: (((i)==1)? 6: 3))
+#define SOC_SPI_MAX_CS_NUM          6
 
 #define SOC_SPI_MAXIMUM_BUFFER_SIZE     72
 #define SOC_SPI_MAX_PRE_DIVIDER         8192

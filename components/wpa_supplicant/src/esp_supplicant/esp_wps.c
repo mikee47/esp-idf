@@ -598,6 +598,7 @@ wps_parse_scan_result(struct wps_scan_ie *scan)
             for (count = 0; count < WPS_MAX_DIS_AP_NUM; count++) {
                 if (os_memcmp(sm->dis_ap_list[count].bssid, scan->bssid, ETH_ALEN) == 0) {
                     wpa_printf(MSG_INFO, "discard ap bssid "MACSTR, MAC2STR(scan->bssid));
+                    wpabuf_free(buf);
                     return false;
                 }
             }
@@ -606,9 +607,12 @@ wps_parse_scan_result(struct wps_scan_ie *scan)
 
         if (ap_found || sm->wps_pin_war) {
             wpabuf_free(buf);
+            if (scan->ssid[1] > SSID_MAX_LEN) {
+                return false;
+            }
             esp_wifi_enable_sta_privacy_internal();
             os_memset(sm->config.ssid, 0, sizeof(sm->config.ssid));
-            strncpy((char *)sm->config.ssid, (char *)&scan->ssid[2], (int)scan->ssid[1]);
+            os_memcpy(sm->config.ssid, (char *)&scan->ssid[2], (int)scan->ssid[1]);
             if (scan->bssid && memcmp(sm->config.bssid, scan->bssid, ETH_ALEN) != 0) {
                 wpa_printf(MSG_INFO, "sm BSSid: "MACSTR " scan BSSID " MACSTR "\n",
                            MAC2STR(sm->config.bssid), MAC2STR(scan->bssid));
@@ -641,6 +645,7 @@ int wps_send_eap_identity_rsp(u8 id)
     eap_buf = eap_msg_alloc(EAP_VENDOR_IETF, EAP_TYPE_IDENTITY, sm->identity_len,
                             EAP_CODE_RESPONSE, id);
     if (!eap_buf) {
+        wpa_printf(MSG_ERROR, "eap buf allocation failed");
         ret = ESP_FAIL;
         goto _err;
     }
@@ -656,12 +661,14 @@ int wps_send_eap_identity_rsp(u8 id)
 
     buf = wps_sm_alloc_eapol(sm, IEEE802_1X_TYPE_EAP_PACKET, wpabuf_head_u8(eap_buf), wpabuf_len(eap_buf), (size_t *)&len, NULL);
     if (!buf) {
+        wpa_printf(MSG_ERROR, "buf allocation failed");
         ret = ESP_ERR_NO_MEM;
         goto _err;
     }
 
     ret = wps_sm_ether_send(sm, bssid, ETH_P_EAPOL, buf, len);
     if (ret) {
+        wpa_printf(MSG_ERROR, "wps sm ether send failed ret=%d", ret);
         ret = ESP_FAIL;
         goto _err;
     }
@@ -797,6 +804,10 @@ int wps_process_wps_mX_req(u8 *ubuf, int len, enum wps_process_res *res)
     }
 
     if ((flag & WPS_MSG_FLAG_MORE) || wps_buf != NULL) {//frag msg
+        if (tlen > 50000) {
+            wpa_printf(MSG_ERROR, "EAP-WSC: Invalid Message Length");
+            return ESP_FAIL;
+	}
         wpa_printf(MSG_DEBUG, "rx frag msg id:%d, flag:%d, frag_len: %d, tot_len: %d, be_tot_len:%d", sm->current_identifier, flag, frag_len, tlen, be_tot_len);
         if (ESP_OK != wps_enrollee_process_msg_frag(&wps_buf, tlen, tbuf, frag_len, flag)) {
             if (wps_buf) {
@@ -1679,6 +1690,9 @@ _err:
         sm->dev = NULL;
     }
     if (sm->wps_ctx) {
+        if (sm->wps_ctx->dh_privkey) {
+            wpabuf_free(sm->wps_ctx->dh_privkey);
+        }
         os_free(sm->wps_ctx);
         sm->wps_ctx = NULL;
     }
@@ -1733,6 +1747,9 @@ wifi_station_wps_deinit(void)
         sm->dev = NULL;
     }
     if (sm->wps_ctx) {
+        if (sm->wps_ctx->dh_privkey) {
+            wpabuf_free(sm->wps_ctx->dh_privkey);
+        }
         os_free(sm->wps_ctx);
         sm->wps_ctx = NULL;
     }
@@ -1895,12 +1912,8 @@ int wifi_station_wps_start(void)
     switch (wps_get_status()) {
     case WPS_STATUS_DISABLE: {
         sm->is_wps_scan = true;
-
         wps_build_public_key(sm->wps, NULL, WPS_CALC_KEY_PRE_CALC);
-
         wifi_wps_scan();
-
-
         break;
     }
     case WPS_STATUS_SCANNING:
@@ -2119,7 +2132,7 @@ int wifi_wps_enable_internal(const esp_wps_config_t *config)
     ret = wifi_station_wps_init();
 
     if (ret != 0) {
-        wps_set_type(WPS_STATUS_DISABLE);
+        wps_set_type(WPS_TYPE_DISABLE);
         wps_set_status(WPS_STATUS_DISABLE);
         return ESP_FAIL;
     }

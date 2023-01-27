@@ -403,6 +403,11 @@ uint32_t rtc_clk_apb_freq_get(void);
  * 32k XTAL is being calibrated, but the oscillator has not started up (due to
  * incorrect loading capacitance, board design issue, or lack of 32 XTAL on board).
  *
+ * @note When 32k CLK is being calibrated, this function will check the accuracy
+ * of the clock. Since the xtal 32k or ext osc 32k is generally very stable, if
+ * the check fails, then consider this an invalid 32k clock and return 0. This
+ * check can filter some jamming signal.
+ *
  * @param cal_clk  clock to be measured
  * @param slow_clk_cycles  number of slow clock cycles to average
  * @return average slow clock period in microseconds, Q13.19 fixed point format,
@@ -475,6 +480,11 @@ void rtc_dig_clk8m_enable(void);
 void rtc_dig_clk8m_disable(void);
 
 /**
+ * @brief Get whether the rtc digital 8M clock is enabled
+ */
+bool rtc_dig_8m_enabled(void);
+
+/**
  * @brief Calculate the real clock value after the clock calibration
  *
  * @param cal_val Average slow clock period in microseconds, fixed point value as returned from `rtc_clk_cal`
@@ -523,7 +533,7 @@ typedef struct rtc_sleep_config_s {
     .rtc_slowmem_pd_en = ((sleep_flags) & RTC_SLEEP_PD_RTC_SLOW_MEM) ? 1 : 0, \
     .rtc_peri_pd_en = ((sleep_flags) & RTC_SLEEP_PD_RTC_PERIPH) ? 1 : 0, \
     .wifi_pd_en = 0, \
-    .int_8m_pd_en = is_dslp(sleep_flags) ? 1 : ((sleep_flags) & RTC_SLEEP_PD_INT_8M) ? 1 : 0, \
+    .int_8m_pd_en = ((sleep_flags) & RTC_SLEEP_PD_INT_8M) ? 1 : 0, \
     .rom_mem_pd_en = 0, \
     .deep_slp = ((sleep_flags) & RTC_SLEEP_PD_DIG) ? 1 : 0, \
     .wdt_flashboot_mod_en = 0, \
@@ -550,12 +560,16 @@ typedef struct rtc_sleep_config_s {
 #define RTC_SLEEP_PD_INT_8M             BIT(7)  //!< Power down Internal 8M oscillator
 
 /* Various delays to be programmed into power control state machines */
-#define RTC_CNTL_XTL_BUF_WAIT_SLP_US        (500)
+#define RTC_CNTL_XTL_BUF_WAIT_SLP_US        (1000)
 #define RTC_CNTL_PLL_BUF_WAIT_SLP_CYCLES    (1)
 #define RTC_CNTL_CK8M_WAIT_SLP_CYCLES       (4)
 #define RTC_CNTL_WAKEUP_DELAY_CYCLES        (7)
 #define RTC_CNTL_OTHER_BLOCKS_POWERUP_CYCLES    (1)
 #define RTC_CNTL_OTHER_BLOCKS_WAIT_CYCLES       (1)
+#define RTC_CNTL_MIN_SLP_VAL_MIN            (128)
+
+#define RTC_CNTL_CK8M_WAIT_DEFAULT          20
+#define RTC_CK8M_ENABLE_WAIT_DEFAULT        5
 
 /**
  * @brief Prepare the chip to enter sleep mode

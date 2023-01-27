@@ -306,6 +306,16 @@ The default lwIP implementation is to have these timers enabled all the time, ev
 
 To return to the default lwIP behaviour (always-on timers), disable :ref:`CONFIG_LWIP_TIMERS_ONDEMAND`.
 
+Lwip timers API
++++++++++++++++
+
+When users are not using WiFi, these APIs provide users with the ability to turn off LwIP timer to reduce power consumption.
+
+The following API functions are supported. For full details see :component_file:`lwip/lwip/src/include/lwip/timeouts.h`.
+
+- ``sys_timeouts_init()``
+- ``sys_timeouts_deinit()``
+
 Abort TCP connections when IP changes
 +++++++++++++++++++++++++++++++++++++
 
@@ -373,6 +383,7 @@ Most lwIP RAM usage is on-demand, as RAM is allocated from the heap as needed. T
 
 - Reducing :ref:`CONFIG_LWIP_MAX_SOCKETS` reduces the maximum number of sockets in the system. This will also cause TCP sockets in the ``WAIT_CLOSE`` state to be closed and recycled more rapidly (if needed to open a new socket), further reducing peak RAM usage.
 - Reducing :ref:`CONFIG_LWIP_TCPIP_RECVMBOX_SIZE`, :ref:`CONFIG_LWIP_TCP_RECVMBOX_SIZE` and :ref:`CONFIG_LWIP_UDP_RECVMBOX_SIZE` reduce memory usage at the expense of throughput, depending on usage.
+- Reducing :ref:`CONFIG_LWIP_TCP_MSL`, :ref:`CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT` reduces the maximum segment lifetime in the system. This will also cause TCP sockets in the ``TIME_WAIT``, ``FIN_WAIT_2`` state to be closed and recycled more rapidly 
 - Disable  :ref:`CONFIG_LWIP_IPV6` can save about 39 KB for firmware size and 2KB RAM when system power up and 7KB RAM when TCPIP stack running. If there is no requirement for supporting IPV6 then it can be disabled to save flash and RAM footprint.
 
 If using Wi-Fi, please also refer to :ref:`wifi-buffer-usage`.

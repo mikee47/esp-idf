@@ -122,11 +122,11 @@ enum {
     .txant_dft = CONFIG_BT_CTRL_TX_ANTENNA_INDEX_EFF,                      \
     .rxant_dft = CONFIG_BT_CTRL_RX_ANTENNA_INDEX_EFF,                      \
     .txpwr_dft = CONFIG_BT_CTRL_DFT_TX_POWER_LEVEL_EFF,                    \
-};
+}
 
 
 #else
-#define BT_CONTROLLER_INIT_CONFIG_DEFAULT() {0}; _Static_assert(0, "please enable bluetooth in menuconfig to use bt.h");
+#define BT_CONTROLLER_INIT_CONFIG_DEFAULT() {0}; _Static_assert(0, "please enable bluetooth in menuconfig to use esp_bt.h");
 #endif
 
 /**
@@ -448,6 +448,26 @@ void esp_bt_controller_wakeup_request(void);
  */
 int esp_bt_h4tl_eif_io_event_notify(int event);
 
+<<<<<<< HEAD
+=======
+/**
+ * @brief bt Wi-Fi power domain power on
+ */
+void esp_wifi_bt_power_domain_on(void);
+
+/**
+ * @brief bt Wi-Fi power domain power off
+ */
+void esp_wifi_bt_power_domain_off(void);
+
+/**
+ * @brief Register application callback function to Wi-Fi low power clock module.
+ *
+ * @param callback : Wi-Fi set low power clock callback function
+ */
+void esp_wifi_set_lpclk_register_callback(esp_set_lpclk_source_callback_t callback);
+
+>>>>>>> 8f0c559c03... make bluetooth and wifi use the same low power clock
 #ifdef __cplusplus
 }
 #endif

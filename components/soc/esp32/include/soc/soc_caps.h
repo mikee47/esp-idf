@@ -90,6 +90,7 @@
  */
 #define SOC_ADC_SUPPORT_DMA_MODE(PERIPH_NUM) ((PERIPH_NUM==0)? 1: 0)
 #define SOC_ADC_SUPPORT_RTC_CTRL        1
+#define SOC_RTC_SLOW_CLOCK_SUPPORT_8MD256       (1)
 
 /*-------------------------- BROWNOUT CAPS -----------------------------------*/
 #if SOC_CAPS_ECO_VER >= 1
@@ -119,6 +120,9 @@
 #define SOC_GPIO_VALID_GPIO_MASK        (0xFFFFFFFFFFULL & ~(0ULL | BIT24 | BIT28 | BIT29 | BIT30 | BIT31))
 // GPIO >= 34 are input only
 #define SOC_GPIO_VALID_OUTPUT_GPIO_MASK (SOC_GPIO_VALID_GPIO_MASK & ~(0ULL | BIT34 | BIT35 | BIT36 | BIT37 | BIT38 | BIT39))
+
+// digital I/O pad powered by VDD3P3_CPU or VDD_SPI(GPIO_NUM: 1, 3, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 21, 22, 23)
+#define SOC_GPIO_VALID_DIGITAL_IO_PAD_MASK 0xEF0FEAULL
 
 // Support to configure slept status
 #define SOC_GPIO_SUPPORT_SLP_SWITCH  (1)
@@ -195,6 +199,7 @@
 #define SOC_SPI_DMA_CHAN_NUM        2
 
 #define SOC_SPI_PERIPH_CS_NUM(i)    3
+#define SOC_SPI_MAX_CS_NUM          3
 
 #define SOC_SPI_MAXIMUM_BUFFER_SIZE 64
 #define SOC_SPI_MAX_PRE_DIVIDER     8192
@@ -276,6 +281,3 @@
 #  define CAN_BRP_DIV_SUPPORTED             SOC_TWAI_BRP_DIV_SUPPORTED
 #  define CAN_BRP_DIV_THRESH                SOC_TWAI_BRP_DIV_THRESH
 #endif
-
-/*------------------------------ BLE --------------------------------------------*/
-#define SOC_BLE_DONT_UPDATE_OWN_RPA  (1)

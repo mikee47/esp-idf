@@ -429,7 +429,13 @@ menu "LWIP"
             int "Maximum segment lifetime (MSL)"
             default 60000
             help
-                Set maximum segment lifetime in in milliseconds.
+                Set maximum segment lifetime in milliseconds.
+
+        config LWIP_TCP_FIN_WAIT_TIMEOUT
+            int "Maximum FIN segment lifetime"
+            default 20000
+            help
+                Set maximum segment lifetime in milliseconds.
 
         config LWIP_TCP_SND_BUF_DEFAULT
             int "Default send buffer size"
@@ -876,6 +882,13 @@ menu "LWIP"
     menuconfig LWIP_DEBUG
         bool "Enable LWIP Debug"
         default n
+
+    config LWIP_DEBUG_ESP_LOG
+        bool "Route LWIP debugs through ESP_LOG interface"
+        depends on LWIP_DEBUG
+        default n
+        help
+            Enabling this option routes all enabled LWIP debugs through ESP_LOGD.
 
     config LWIP_NETIF_DEBUG
         bool "Enable netif debug messages"

@@ -19,6 +19,7 @@
 #include <sys/lock.h>
 
 #include "soc/rtc.h"
+#include "soc/syscon_reg.h"
 #include "esp_err.h"
 #include "esp_phy_init.h"
 #include "esp_system.h"
@@ -43,11 +44,9 @@
 #elif CONFIG_IDF_TARGET_ESP32C3
 #include "esp32c3/rom/rtc.h"
 #include "soc/rtc_cntl_reg.h"
-#include "soc/syscon_reg.h"
 #elif CONFIG_IDF_TARGET_ESP32S3
 #include "esp32s3/rom/rtc.h"
 #include "soc/rtc_cntl_reg.h"
-#include "soc/syscon_reg.h"
 #endif
 
 #if CONFIG_IDF_TARGET_ESP32
@@ -86,7 +85,7 @@ static DRAM_ATTR portMUX_TYPE s_phy_int_mux = portMUX_INITIALIZER_UNLOCKED;
 
 /* Memory to store PHY digital registers */
 static uint32_t* s_phy_digital_regs_mem = NULL;
-static uint8_t s_phy_backup_mem_ref = 0;
+static uint8_t s_phy_modem_init_ref = 0;
 
 #if CONFIG_MAC_BB_PD
 uint32_t* s_mac_bb_pd_mem = NULL;
@@ -293,9 +292,9 @@ void IRAM_ATTR esp_wifi_bt_power_domain_on(void)
     _lock_acquire(&s_wifi_bt_pd_controller.lock);
     if (s_wifi_bt_pd_controller.count++ == 0) {
         CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_PWC_REG, RTC_CNTL_WIFI_FORCE_PD);
-#if CONFIG_IDF_TARGET_ESP32C3
-        SET_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, SYSTEM_WIFIBB_RST | SYSTEM_FE_RST);
-        CLEAR_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, SYSTEM_WIFIBB_RST | SYSTEM_FE_RST);
+#if !CONFIG_IDF_TARGET_ESP32
+        SET_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, MODEM_RESET_FIELD_WHEN_PU);
+        CLEAR_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, MODEM_RESET_FIELD_WHEN_PU);
 #endif
         CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_WIFI_FORCE_ISO);
     }
@@ -312,11 +311,11 @@ void esp_wifi_bt_power_domain_off(void)
     _lock_release(&s_wifi_bt_pd_controller.lock);
 }
 
-void esp_phy_pd_mem_init(void)
+void esp_phy_modem_init(void)
 {
     _lock_acquire(&s_phy_access_lock);
 
-    s_phy_backup_mem_ref++;
+    s_phy_modem_init_ref++;
     if (s_phy_digital_regs_mem == NULL) {
         s_phy_digital_regs_mem = (uint32_t *)heap_caps_malloc(SOC_PHY_DIG_REGS_MEM_SIZE, MALLOC_CAP_DMA|MALLOC_CAP_INTERNAL);
     }
@@ -325,15 +324,21 @@ void esp_phy_pd_mem_init(void)
 
 }
 
-void esp_phy_pd_mem_deinit(void)
+void esp_phy_modem_deinit(void)
 {
     _lock_acquire(&s_phy_access_lock);
 
-    s_phy_backup_mem_ref--;
-    if (s_phy_backup_mem_ref == 0) {
+    s_phy_modem_init_ref--;
+    if (s_phy_modem_init_ref == 0) {
         s_is_phy_reg_stored = false;
         free(s_phy_digital_regs_mem);
         s_phy_digital_regs_mem = NULL;
+        /* Fix the issue caused by the power domain off.
+        * This issue is only on ESP32C3.
+        */
+#if CONFIG_IDF_TARGET_ESP32C3
+        phy_init_flag();
+#endif
     }
 
     _lock_release(&s_phy_access_lock);
@@ -424,6 +429,7 @@ const esp_phy_init_data_t* esp_phy_get_init_data(void)
         ESP_LOGE(TAG, "failed to allocate memory for PHY init data");
         return NULL;
     }
+    // read phy data from flash
     esp_err_t err = esp_partition_read(partition, 0, init_data_store, init_data_store_length);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "failed to read PHY data partition (0x%x)", err);
@@ -431,12 +437,36 @@ const esp_phy_init_data_t* esp_phy_get_init_data(void)
         return NULL;
     }
 #endif
+    // verify data
     if (memcmp(init_data_store, PHY_INIT_MAGIC, sizeof(phy_init_magic_pre)) != 0 ||
         memcmp(init_data_store + init_data_store_length - sizeof(phy_init_magic_post),
                 PHY_INIT_MAGIC, sizeof(phy_init_magic_post)) != 0) {
+#ifndef CONFIG_ESP32_PHY_DEFAULT_INIT_IF_INVALID
         ESP_LOGE(TAG, "failed to validate PHY data partition");
         free(init_data_store);
         return NULL;
+#else
+        ESP_LOGE(TAG, "failed to validate PHY data partition, restoring default data into flash...");
+
+        memcpy(init_data_store,
+               PHY_INIT_MAGIC, sizeof(phy_init_magic_pre));
+        memcpy(init_data_store + sizeof(phy_init_magic_pre),
+               &phy_init_data, sizeof(phy_init_data));
+        memcpy(init_data_store + sizeof(phy_init_magic_pre) + sizeof(phy_init_data),
+               PHY_INIT_MAGIC, sizeof(phy_init_magic_post));
+
+        assert(memcmp(init_data_store, PHY_INIT_MAGIC, sizeof(phy_init_magic_pre)) == 0);
+        assert(memcmp(init_data_store + init_data_store_length - sizeof(phy_init_magic_post),
+                      PHY_INIT_MAGIC, sizeof(phy_init_magic_post)) == 0);
+
+        // write default data
+        err = esp_partition_write(partition, 0, init_data_store, init_data_store_length);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "failed to write default PHY data partition (0x%x)", err);
+            free(init_data_store);
+            return NULL;
+        }
+#endif // CONFIG_ESP32_PHY_DEFAULT_INIT_IF_INVALID
     }
 #if CONFIG_ESP32_SUPPORT_MULTIPLE_PHY_INIT_DATA_BIN
     if ((*(init_data_store + (sizeof(phy_init_magic_pre) + PHY_SUPPORT_MULTIPLE_BIN_OFFSET)))) {
@@ -853,8 +883,8 @@ static esp_err_t phy_get_multiple_init_data(const esp_partition_t* partition,
 
     err = phy_find_bin_data_according_type(init_data_store, init_data_control_info, init_data_multiple, init_data_type);
     if (err != ESP_OK) {
-		ESP_LOGW(TAG, "%s has not been certified, use DEFAULT PHY init data", s_phy_type[init_data_type]);
-		s_phy_init_data_type = ESP_PHY_INIT_DATA_TYPE_DEFAULT;
+        ESP_LOGW(TAG, "%s has not been certified, use DEFAULT PHY init data", s_phy_type[init_data_type]);
+        s_phy_init_data_type = ESP_PHY_INIT_DATA_TYPE_DEFAULT;
     } else {
         s_phy_init_data_type = init_data_type;
     }
