@@ -330,7 +330,7 @@ static inline void ledc_ll_set_duty_direction(ledc_dev_t *hw, ledc_mode_t speed_
  * @return None
  */
 static inline void ledc_ll_get_duty_direction(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel_num, ledc_duty_direction_t *duty_direction){
-    *duty_direction = hw->channel_group[speed_mode].channel[channel_num].conf1.duty_inc;
+    *duty_direction = (ledc_duty_direction_t)hw->channel_group[speed_mode].channel[channel_num].conf1.duty_inc;
 }
 
 /**
@@ -488,7 +488,7 @@ static inline void ledc_ll_bind_channel_timer(ledc_dev_t *hw, ledc_mode_t speed_
  * @return None
  */
 static inline void ledc_ll_get_channel_timer(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel_num, ledc_timer_t *timer_sel){
-    *timer_sel = hw->channel_group[speed_mode].channel[channel_num].conf0.timer_sel;
+    *timer_sel = (ledc_timer_t)hw->channel_group[speed_mode].channel[channel_num].conf0.timer_sel;
 }
 
 #ifdef __cplusplus

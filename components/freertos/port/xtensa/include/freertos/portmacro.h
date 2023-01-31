@@ -496,11 +496,7 @@ static inline void __attribute__((always_inline)) uxPortCompareSetExtram(volatil
  *
  * @note [refactor-todo] Refactor this to avoid va_args
  */
-#if defined(__cplusplus) && (__cplusplus >  201703L)
-#define portYIELD_FROM_ISR(...) vPortEvaluateYieldFromISR(portGET_ARGUMENT_COUNT(__VA_ARGS__) __VA_OPT__(,) __VA_ARGS__)
-#else
-#define portYIELD_FROM_ISR(...) vPortEvaluateYieldFromISR(portGET_ARGUMENT_COUNT(__VA_ARGS__), ##__VA_ARGS__)
-#endif
+#define portYIELD_FROM_ISR() vPortEvaluateYieldFromISR(0)
 
 /* Yielding within an API call (when interrupts are off), means the yield should be delayed
    until interrupts are re-enabled.
@@ -694,28 +690,6 @@ struct xMEMORY_REGION;
 void vPortStoreTaskMPUSettings( xMPU_SETTINGS *xMPUSettings, const struct xMEMORY_REGION *const xRegions, StackType_t *pxBottomOfStack, uint32_t usStackDepth ) PRIVILEGED_FUNCTION;
 void vPortReleaseTaskMPUSettings( xMPU_SETTINGS *xMPUSettings );
 #endif
-
-// -------------------- VA_ARGS Yield ----------------------
-
-/**
- * Macro to count number of arguments of a __VA_ARGS__ used to support portYIELD_FROM_ISR with,
- * or without arguments. The macro counts only 0 or 1 arguments.
- *
- * In the future, we want to switch to C++20. We also want to become compatible with clang.
- * Hence, we provide two versions of the following macros which are using variadic arguments.
- * The first one is using the GNU extension ##__VA_ARGS__. The second one is using the C++20 feature __VA_OPT__(,).
- * This allows users to compile their code with standard C++20 enabled instead of the GNU extension.
- * Below C++20, we haven't found any good alternative to using ##__VA_ARGS__.
- */
-#if defined(__cplusplus) && (__cplusplus >  201703L)
-#define portGET_ARGUMENT_COUNT(...) portGET_ARGUMENT_COUNT_INNER(0 __VA_OPT__(,) __VA_ARGS__,1,0)
-#else
-#define portGET_ARGUMENT_COUNT(...) portGET_ARGUMENT_COUNT_INNER(0, ##__VA_ARGS__,1,0)
-#endif
-#define portGET_ARGUMENT_COUNT_INNER(zero, one, count, ...) count
-
-_Static_assert(portGET_ARGUMENT_COUNT() == 0, "portGET_ARGUMENT_COUNT() result does not match for 0 arguments");
-_Static_assert(portGET_ARGUMENT_COUNT(1) == 1, "portGET_ARGUMENT_COUNT() result does not match for 1 argument");
 
 // -------------------- Heap Related -----------------------
 

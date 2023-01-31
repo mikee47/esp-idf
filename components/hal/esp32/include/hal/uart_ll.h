@@ -353,7 +353,7 @@ FORCE_INLINE_ATTR void uart_ll_get_stop_bits(uart_dev_t *hw, uart_stop_bits_t *s
 {
     //workaround for hardware issue, when UART stop bit set as 2-bit mode.
     if(hw->rs485_conf.dl1_en == 1 && hw->conf0.stop_bit_num == 0x1) {
-        *stop_bit = (uart_stop_bits_t)UART_STOP_BITS_2;
+        *stop_bit = UART_STOP_BITS_2;
     } else {
         *stop_bit = (uart_stop_bits_t)hw->conf0.stop_bit_num;
     }

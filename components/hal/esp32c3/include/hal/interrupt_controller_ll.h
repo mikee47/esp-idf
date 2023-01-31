@@ -80,7 +80,7 @@ static inline bool intr_cntrl_ll_has_handler(uint8_t intr, uint8_t cpu)
  */
 static inline void intr_cntrl_ll_set_int_handler(uint8_t intr, interrupt_handler_t handler, void *arg)
 {
-    intr_handler_set(intr, (void *)handler, arg);
+    intr_handler_set(intr, (intr_handler_t)handler, arg);
 }
 
 /**
