@@ -12,10 +12,6 @@ This header contains various general purpose helper macros used across ESP-IDF
 #include <assert.h>
 #include "esp_assert.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * @brief Macro to select different versions of other macros based on whether VA_ARGS has an argument or no argument
  *
@@ -37,34 +33,25 @@ extern "C" {
  * The other is using the C++20 feature __VA_OPT__(,). This allows users to compile their code with standard C++20
  * enabled instead of the GNU extension. Below C++20, we haven't found any good alternative to using ##__VA_ARGS__.
  */
-#if defined(__cplusplus) && (__cplusplus >  201703L)
-#define CHOOSE_MACRO_VA_ARG_INN_IMPL(...) __VA_OPT__(0)
-#define CHOOSE_MACRO_VA_ARG_INN(one, MACRO1, MACRO2, ...) MACRO1
-#define CHOOSE_MACRO_VA_ARG(MACRO_WITH_ARGS, MACRO_WITH_NO_ARGS, ...) CHOOSE_MACRO_VA_ARG_INN(CHOOSE_MACRO_VA_ARG_INN_IMPL(__VA_ARGS__) __VA_OPT__(,) MACRO_WITH_ARGS, MACRO_WITH_NO_ARGS, 0)
-#else
+#define VA_ARG_TEST_INNER(a, b, c, ...) c
+#define VA_ARG_TEST(...) VA_ARG_TEST_INNER(0, ##__VA_ARGS__, 1, 2, 3)
+#if VA_ARG_TEST() == 2
 #define CHOOSE_MACRO_VA_ARG_INN(one, two, MACRO1, MACRO2, ...) MACRO1
 #define CHOOSE_MACRO_VA_ARG(MACRO_WITH_ARGS, MACRO_WITH_NO_ARGS, ...) CHOOSE_MACRO_VA_ARG_INN(0, ##__VA_ARGS__, MACRO_WITH_ARGS, MACRO_WITH_NO_ARGS, 0)
-#endif
 
 /* test macros */
 #define foo_args(...) 1
 #define foo_no_args() 2
-#if defined(__cplusplus) && (__cplusplus >  201703L)
-#define foo(...) CHOOSE_MACRO_VA_ARG(foo_args, foo_no_args __VA_OPT__(,) __VA_ARGS__)(__VA_ARGS__)
-#else
 #define foo(...) CHOOSE_MACRO_VA_ARG(foo_args, foo_no_args, ##__VA_ARGS__)(__VA_ARGS__)
-#endif
 
 ESP_STATIC_ASSERT(foo() == 2, "CHOOSE_MACRO_VA_ARG() result does not match for 0 arguments");
 ESP_STATIC_ASSERT(foo(42) == 1, "CHOOSE_MACRO_VA_ARG() result does not match for 1 argument");
-#if defined(__cplusplus) && (__cplusplus >  201703L)
-ESP_STATIC_ASSERT(foo(42, 87) == 1, "CHOOSE_MACRO_VA_ARG() result does not match for n arguments");
-#endif
 
 #undef foo
 #undef foo_args
 #undef foo_no_args
 
-#ifdef __cplusplus
-}
+#else
+#define CHOOSE_MACRO_VA_ARG_UNSUPPORTED(...) static_assert(false, "CHOOSE_MACRO_VA_ARG not supported")
+#define CHOOSE_MACRO_VA_ARG(MACRO_WITH_ARGS, MACRO_WITH_NO_ARGS, ...) CHOOSE_MACRO_VA_ARG_UNSUPPORTED
 #endif
