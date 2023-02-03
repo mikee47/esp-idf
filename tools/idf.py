@@ -44,7 +44,7 @@ try:
 except ImportError:
     # For example, importing click could cause this.
     print('Please use idf.py only in an ESP-IDF shell environment.', file=sys.stderr)
-    sys.exit(1)
+    raise
 
 # Use this Python interpreter for any subprocesses we launch
 PYTHON = sys.executable
