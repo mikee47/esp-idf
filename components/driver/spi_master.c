@@ -839,6 +839,32 @@ clean_up:
     return ret;
 }
 
+esp_err_t IRAM_ATTR spi_device_queue_trans_from_isr(spi_device_handle_t handle, spi_transaction_t *trans_desc)
+{
+    spi_trans_priv_t trans_buf = { .trans = trans_desc, };
+
+    if ( trans_desc->flags & SPI_TRANS_USE_RXDATA ) {
+        trans_buf.buffer_to_rcv = (uint32_t *)&trans_desc->rx_data[0];
+    } else {
+        trans_buf.buffer_to_rcv = trans_desc->rx_buffer;
+    }
+
+    if ( trans_desc->flags & SPI_TRANS_USE_TXDATA ) {
+        trans_buf.buffer_to_send = (uint32_t *)&trans_desc->tx_data[0];
+    } else {
+        trans_buf.buffer_to_send = trans_desc->tx_buffer ;
+    }
+
+    BaseType_t r = xQueueSendFromISR(handle->trans_queue, (void *)&trans_buf, NULL);
+
+    if(!r) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    spi_bus_lock_bg_request(handle->dev_lock);
+    return ESP_OK;
+}
+
 esp_err_t SPI_MASTER_ATTR spi_device_get_trans_result(spi_device_handle_t handle, spi_transaction_t **trans_desc, TickType_t ticks_to_wait)
 {
     BaseType_t r;
