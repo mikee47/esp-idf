@@ -114,7 +114,7 @@ static inline bool __attribute__((always_inline)) spinlock_acquire(spinlock_t *l
             break;
         }
         // Keep looping if we are waiting forever, or check if we have timed out
-    } while ((timeout == SPINLOCK_WAIT_FOREVER) || (esp_cpu_get_cycle_count() - start_count) <= timeout);
+    } while ((timeout == SPINLOCK_WAIT_FOREVER) || (esp_cpu_get_cycle_count() - start_count) <= (uint32_t)timeout);
 
 exit:
     if (lock_set) {
