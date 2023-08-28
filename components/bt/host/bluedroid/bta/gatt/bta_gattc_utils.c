@@ -322,6 +322,15 @@ void bta_gattc_clcb_dealloc(tBTA_GATTC_CLCB *p_clcb)
     }
 }
 
+void bta_gattc_clcb_dealloc_by_conn_id(UINT16 conn_id)
+{
+    tBTA_GATTC_CLCB *p_clcb = bta_gattc_find_clcb_by_conn_id(conn_id);
+
+    if (p_clcb) {
+        bta_gattc_clcb_dealloc(p_clcb);
+    }
+}
+
 /*******************************************************************************
 **
 ** Function         bta_gattc_find_srcb
@@ -421,6 +430,7 @@ tBTA_GATTC_SERV *bta_gattc_srcb_alloc(BD_ADDR bda)
     {
         if (p_tcb->p_srvc_cache != NULL) {
             list_free(p_tcb->p_srvc_cache);
+            p_tcb->p_srvc_cache = NULL;
         }
         osi_free(p_tcb->p_srvc_list);
         p_tcb->p_srvc_list = NULL;
@@ -765,7 +775,8 @@ void bta_gattc_send_open_cback( tBTA_GATTC_RCB *p_clreg, tBTA_GATT_STATUS status
 ** Returns
 **
 *******************************************************************************/
-void bta_gattc_send_connect_cback( tBTA_GATTC_RCB *p_clreg, BD_ADDR remote_bda, UINT16 conn_id, tBTA_GATT_CONN_PARAMS conn_params, UINT8 link_role)
+void bta_gattc_send_connect_cback( tBTA_GATTC_RCB *p_clreg, BD_ADDR remote_bda, UINT16 conn_id,
+                                tBTA_GATT_CONN_PARAMS conn_params, UINT8 link_role, UINT8 ble_addr_type, UINT16 conn_handle)
 {
     tBTA_GATTC      cb_data;
 
@@ -779,6 +790,8 @@ void bta_gattc_send_connect_cback( tBTA_GATTC_RCB *p_clreg, BD_ADDR remote_bda, 
         cb_data.connect.conn_params.latency = conn_params.latency;
         cb_data.connect.conn_params.timeout = conn_params.timeout;
         bdcpy(cb_data.connect.remote_bda, remote_bda);
+        cb_data.connect.ble_addr_type = ble_addr_type;
+        cb_data.connect.conn_handle = conn_handle;
 
         (*p_clreg->p_cback)(BTA_GATTC_CONNECT_EVT, &cb_data);
     }

@@ -42,6 +42,7 @@
 #include "soc/i2s_periph.h"
 #include "esp_private/i2s_platform.h"
 #endif
+#include "esp_private/sar_periph_ctrl.h"
 
 static const char *ADC_TAG = "ADC";
 
@@ -365,7 +366,7 @@ esp_err_t adc_digi_start(void)
             ESP_LOGE(ADC_TAG, "The driver is already started");
             return ESP_ERR_INVALID_STATE;
         }
-        adc_power_acquire();
+        sar_periph_ctrl_adc_continuous_power_acquire();
         //reset flags
         s_adc_digi_ctx->ringbuf_overflow_flag = 0;
         s_adc_digi_ctx->driver_start_flag = 1;
@@ -454,7 +455,7 @@ esp_err_t adc_digi_stop(void)
         if (s_adc_digi_ctx->use_adc2) {
             SAR_ADC2_LOCK_RELEASE();
         }
-        adc_power_release();
+        sar_periph_ctrl_adc_continuous_power_release();
     }
 #if CONFIG_IDF_TARGET_ESP32S2
     else {
@@ -569,8 +570,21 @@ esp_err_t adc_digi_controller_configure(const adc_digi_configuration_t *config)
 #else
     for (int i = 0; i < config->pattern_num; i++) {
         ESP_RETURN_ON_FALSE((config->adc_pattern[i].bit_width == SOC_ADC_DIGI_MAX_BITWIDTH), ESP_ERR_INVALID_ARG, ADC_TAG, "ADC bitwidth not supported");
+#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3
+        //we add this error log to hint users what happened
+        if (SOC_ADC_DIG_SUPPORTED_UNIT(config->adc_pattern[i].unit) == 0) {
+            ESP_LOGE(ADC_TAG, "ADC2 continuous mode is no longer supported, please use ADC1. Search for errata on espressif website for more details. You can enable CONFIG_ADC_CONTINUOUS_FORCE_USE_ADC2_ON_C3_S3 to force use ADC2");
+        }
+#endif  //CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3
+#if !CONFIG_ADC_CONTINUOUS_FORCE_USE_ADC2_ON_C3_S3
+        /**
+         * On all continuous mode supported chips, we will always check the unit to see if it's a continuous mode supported unit.
+         * However, on ESP32C3 and ESP32S3, we will jump this check, if `CONFIG_ADC_CONTINUOUS_FORCE_USE_ADC2_ON_C3_S3` is enabled.
+         */
+        ESP_RETURN_ON_FALSE(SOC_ADC_DIG_SUPPORTED_UNIT(config->adc_pattern[i].unit), ESP_ERR_INVALID_ARG, ADC_TAG, "Only support using ADC1 DMA mode");
+#endif  //#if !CONFIG_ADC_CONTINUOUS_FORCE_USE_ADC2_ON_C3_S3
     }
-#endif
+#endif  //#if CONFIG_IDF_TARGET_ESP32
     ESP_RETURN_ON_FALSE(config->sample_freq_hz <= SOC_ADC_SAMPLE_FREQ_THRES_HIGH && config->sample_freq_hz >= SOC_ADC_SAMPLE_FREQ_THRES_LOW, ESP_ERR_INVALID_ARG, ADC_TAG, "ADC sampling frequency out of range");
 #if CONFIG_IDF_TARGET_ESP32
     ESP_RETURN_ON_FALSE(config->conv_limit_en == 1, ESP_ERR_INVALID_ARG, ADC_TAG, "`conv_limit_en` should be set to 1");
@@ -649,7 +663,7 @@ esp_err_t adc_vref_to_gpio(adc_unit_t adc_unit, gpio_num_t gpio)
         }
     }
 
-    adc_power_acquire();
+    sar_periph_ctrl_adc_oneshot_power_acquire();
     if (adc_unit & ADC_UNIT_1) {
         ADC_ENTER_CRITICAL();
         adc_hal_vref_output(ADC_NUM_1, channel, true);
@@ -694,9 +708,10 @@ int adc1_get_raw(adc1_channel_t channel)
     int raw_out = 0;
 
     periph_module_enable(PERIPH_SARADC_MODULE);
-    adc_power_acquire();
+    sar_periph_ctrl_adc_oneshot_power_acquire();
 
     SAR_ADC1_LOCK_ACQUIRE();
+    adc_ll_digi_clk_sel(0);
 
     adc_atten_t atten = s_atten1_single[channel];
     uint32_t cal_val = adc_get_calibration_offset(ADC_NUM_1, channel, atten);
@@ -709,7 +724,7 @@ int adc1_get_raw(adc1_channel_t channel)
 
     SAR_ADC1_LOCK_RELEASE();
 
-    adc_power_release();
+    sar_periph_ctrl_adc_oneshot_power_release();
     periph_module_disable(PERIPH_SARADC_MODULE);
 
     return raw_out;
@@ -731,6 +746,11 @@ esp_err_t adc2_config_channel_atten(adc2_channel_t channel, adc_atten_t atten)
 
 esp_err_t adc2_get_raw(adc2_channel_t channel, adc_bits_width_t width_bit, int *raw_out)
 {
+#if !CONFIG_ADC_ONESHOT_FORCE_USE_ADC2_ON_C3
+    ESP_LOGE(ADC_TAG, "ADC2 is no longer supported, please use ADC1. Search for errata on espressif website for more details. You can enable ADC_ONESHOT_FORCE_USE_ADC2_ON_C3 to force use ADC2");
+    ESP_RETURN_ON_FALSE(SOC_ADC_DIG_SUPPORTED_UNIT(ADC_UNIT_2), ESP_ERR_INVALID_ARG, ADC_TAG, "adc unit not supported");
+#endif
+
     //On ESP32C3, the data width is always 12-bits.
     if (width_bit != ADC_WIDTH_BIT_12) {
         return ESP_ERR_INVALID_ARG;
@@ -739,9 +759,10 @@ esp_err_t adc2_get_raw(adc2_channel_t channel, adc_bits_width_t width_bit, int *
     esp_err_t ret = ESP_OK;
 
     periph_module_enable(PERIPH_SARADC_MODULE);
-    adc_power_acquire();
+    sar_periph_ctrl_adc_oneshot_power_acquire();
 
     SAR_ADC2_LOCK_ACQUIRE();
+    adc_ll_digi_clk_sel(0);
 
     adc_arbiter_t config = ADC_ARBITER_CONFIG_DEFAULT();
     adc_hal_arbiter_config(&config);
@@ -757,7 +778,7 @@ esp_err_t adc2_get_raw(adc2_channel_t channel, adc_bits_width_t width_bit, int *
 
     SAR_ADC2_LOCK_RELEASE();
 
-    adc_power_release();
+    sar_periph_ctrl_adc_oneshot_power_release();
     periph_module_disable(PERIPH_SARADC_MODULE);
 
     return ret;
@@ -859,12 +880,12 @@ uint32_t adc_get_calibration_offset(adc_ll_num_t adc_n, adc_channel_t channel, a
 
     } else {
         ESP_LOGD(ADC_TAG, "Calibration eFuse is not configured, use self-calibration for ICode");
-        adc_power_acquire();
+        sar_periph_ctrl_adc_oneshot_power_acquire();
         ADC_ENTER_CRITICAL();
         const bool internal_gnd = true;
         init_code = adc_hal_self_calibration(adc_n, channel, atten, internal_gnd);
         ADC_EXIT_CRITICAL();
-        adc_power_release();
+        sar_periph_ctrl_adc_oneshot_power_release();
     }
 
     s_adc_cali_param[adc_n][atten] = init_code;

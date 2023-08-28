@@ -7,8 +7,8 @@
 - 支持 4 个虚拟接口，即STA、AP、Sniffer 和 reserved。
 - 支持仅 station 模式、仅 AP 模式、station/AP 共存模式
 - 支持使用 IEEE 802.11B、IEEE 802.11G、IEEE 802.11N 和 API 配置协议模式
-- 支持 WPA/WPA2/WPA2-企业版和 WPS
-- 支持 AMPDU、HT40、QoS 以及其它主要功能
+- 支持 WPA/WPA2/WPA3/WPA2-企业版和 WPS
+- 支持 AMSDU、AMPDU、HT40、QoS 以及其它主要功能
 - 支持 Modem-sleep
 - 支持乐鑫专属协议，可实现 **1 km** 数据通信量
 - 空中数据传输最高可达 20 MBit/s TCP 吞吐量和 30 MBit/s UDP 吞吐量
@@ -1227,8 +1227,9 @@ API :cpp:func:`esp_wifi_set_config()` 可用于配置 station。配置的参数�
 | bssid       | 只有当 bssid_set 为 1 时有效。见字段 "bssid_set"。                        |
 +-------------+---------------------------------------------------------------------------+
 | channel     | 该字段为 0 时，station 扫描信道 1~N 寻找目标 AP；否则，station            |
-|             | 首先扫描值与 "channel" 字段相同的信道，再扫描其他信道。如果您不知道目标   |
-|             | AP 在哪个信道，请将该字段设置为 0。                                       |
+|             | 首先扫描值与 "channel" 字段相同的信道，再扫描其他信道。比如，当该字段设置 |
+|             | 为 3 时，扫描顺序为 3，1，2，4,...，N。如果您不知道目标 AP 在哪个信道，   |
+|             | 请将该字段设置为 0。                                                      |
 +-------------+---------------------------------------------------------------------------+
 | sort_method | 该字段仅用于 WIFI_ALL_CHANNEL_SCAN 模式。如果设置为                       |
 |             | WIFI_CONNECT_AP_BY_SIGNAL，所有匹配的 AP                                  |
@@ -1972,7 +1973,21 @@ Wi-Fi 协议中定义了四个 AC （访问类别），每个 AC 有各自的优
 Wi-Fi AMSDU
 -------------------------
 
-{IDF_TARGET_NAME} 支持接收和发送 AMSDU。
+.. only:: esp32c3
+
+    {IDF_TARGET_NAME} 支持接收 AMSDU。
+
+.. only:: esp32
+
+    {IDF_TARGET_NAME} 支持接收和发送 AMSDU。开启 AMSDU 发送比较消耗内存，默认不开启 AMSDU 发送。可通过选项 :ref:`CONFIG_ESP32_WIFI_AMSDU_TX_ENABLED` 使能 AMSDU 发送功能， 但是使能 AMSDU 发送依赖于 :ref:`CONFIG_ESP32_SPIRAM_SUPPORT` 。
+
+.. only:: esp32s2
+
+    {IDF_TARGET_NAME} 支持接收和发送 AMSDU。开启 AMSDU 发送比较消耗内存，默认不开启 AMSDU 发送。可通过选项 :ref:`CONFIG_ESP32_WIFI_AMSDU_TX_ENABLED` 使能 AMSDU 发送功能， 但是使能 AMSDU 发送依赖于 :ref:`CONFIG_ESP32S2_SPIRAM_SUPPORT` 。
+
+.. only:: esp32s3
+
+    {IDF_TARGET_NAME} 支持接收和发送 AMSDU。开启 AMSDU 发送比较消耗内存，默认不开启 AMSDU 发送。可通过选项 :ref:`CONFIG_ESP32_WIFI_AMSDU_TX_ENABLED` 使能 AMSDU 发送功能， 但是使能 AMSDU 发送依赖于 :ref:`CONFIG_ESP32S3_SPIRAM_SUPPORT` 。
 
 Wi-Fi 分片
 -------------------------

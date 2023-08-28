@@ -66,8 +66,7 @@
 #include "esp_private/crosscore_int.h"
 #include "esp_flash_encrypt.h"
 
-#include "hal/rtc_io_hal.h"
-#include "hal/gpio_hal.h"
+#include "esp_private/sleep_gpio.h"
 #include "hal/wdt_hal.h"
 #include "soc/rtc.h"
 #include "soc/efuse_reg.h"
@@ -339,6 +338,10 @@ void IRAM_ATTR call_start_cpu0(void)
     extern void rom_config_data_cache_mode(uint32_t cfg_cache_size, uint8_t cfg_cache_ways, uint8_t cfg_cache_line_size);
     rom_config_data_cache_mode(CONFIG_ESP32S3_DATA_CACHE_SIZE, CONFIG_ESP32S3_DCACHE_ASSOCIATED_WAYS, CONFIG_ESP32S3_DATA_CACHE_LINE_SIZE);
     Cache_Resume_DCache(0);
+
+    /*add lock to protect cache operation*/
+    extern void esp_cache_op_lock_init(void);
+    esp_cache_op_lock_init();
 #endif // CONFIG_IDF_TARGET_ESP32S3
 
     if (esp_efuse_check_errors() != ESP_OK) {
@@ -536,11 +539,10 @@ void IRAM_ATTR call_start_cpu0(void)
 #endif
 #endif
 
-#if SOC_RTCIO_HOLD_SUPPORTED
-    rtcio_hal_unhold_all();
-#else
-    gpio_hal_force_unhold_all();
-#endif
+    // Need to unhold the IOs that were hold right before entering deep sleep, which are used as wakeup pins
+    if (rst_reas[0] == RESET_REASON_CORE_DEEP_SLEEP) {
+        esp_deep_sleep_wakeup_io_reset();
+    }
 
     esp_cache_err_int_init();
 

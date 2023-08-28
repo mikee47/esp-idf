@@ -39,6 +39,7 @@ BT_DOCS = ['api-guides/blufi.rst',
 CLASSIC_BT_DOCS = ['api-reference/bluetooth/classic_bt.rst',
                    'api-reference/bluetooth/esp_a2dp.rst',
                    'api-reference/bluetooth/esp_avrc.rst',
+                   'api-reference/bluetooth/esp_hidd.rst',
                    'api-reference/bluetooth/esp_hf_defs.rst',
                    'api-reference/bluetooth/esp_hf_client.rst',
                    'api-reference/bluetooth/esp_hf_ag.rst',
@@ -182,7 +183,7 @@ linkcheck_exclude_documents = ['index',  # several false positives due to the wa
 
 
 linkcheck_ignore = ['https://webhome.phy.duke.edu/~rgb/General/dieharder.php',  # Certificate error
-                    'https://dl.espressif.com/dl/esp32s3_rom.elf',  # Not published
+                    'https://www.cadence.com/content/dam/cadence-www/global/en_US/documents/tools/ip/tensilica-ip/isa-summary.pdf',  # Rejects user-agent
                     ]
 
 

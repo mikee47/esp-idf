@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -322,6 +322,11 @@ static esp_err_t panel_io_i80_del(esp_lcd_panel_io_t *io)
     LIST_REMOVE(i80_device, device_list_entry);
     portEXIT_CRITICAL(&bus->spinlock);
 
+    // reset CS to normal GPIO
+    if (i80_device->cs_gpio_num >= 0) {
+        gpio_reset_pin(i80_device->cs_gpio_num);
+    }
+
     ESP_LOGD(TAG, "del i80 lcd panel io @%p", i80_device);
     vQueueDelete(i80_device->trans_queue);
     vQueueDelete(i80_device->done_queue);
@@ -577,9 +582,16 @@ static void lcd_periph_trigger_quick_trans_done_event(esp_lcd_i80_bus_handle_t b
 static void lcd_start_transaction(esp_lcd_i80_bus_t *bus, lcd_i80_trans_descriptor_t *trans_desc)
 {
     // by default, the dummy phase is disabled because it's not common for most LCDs
+    uint32_t dummy_cycles = 0;
+    uint32_t cmd_cycles = trans_desc->cmd_value >= 0 ? trans_desc->cmd_cycles : 0;
     // Number of data phase cycles are controlled by DMA buffer length, we only need to enable/disable the phase here
-    lcd_ll_set_phase_cycles(bus->hal.dev, trans_desc->cmd_cycles, 0, trans_desc->data ? 1 : 0);
-    lcd_ll_set_command(bus->hal.dev, bus->bus_width, trans_desc->cmd_value);
+    uint32_t data_cycles = trans_desc->data ? 1 : 0;
+    if (trans_desc->cmd_value >= 0) {
+        lcd_ll_set_command(bus->hal.dev, bus->bus_width, trans_desc->cmd_value);
+    }
+    lcd_ll_set_phase_cycles(bus->hal.dev, cmd_cycles, dummy_cycles, data_cycles);
+    lcd_ll_set_blank_cycles(bus->hal.dev, 1, 1);
+
     if (trans_desc->data) { // some specific LCD commands can have no parameters
         gdma_start(bus->dma_chan, (intptr_t)(bus->dma_nodes));
         // delay 1us is sufficient for DMA to pass data to LCD FIFO

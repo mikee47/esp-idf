@@ -43,6 +43,8 @@ endif()
 if(NOT "$ENV{IDF_COMPONENT_MANAGER}" EQUAL "0")
     idf_build_set_property(IDF_COMPONENT_MANAGER 1)
 endif()
+# Set component manager interface version
+idf_build_set_property(__COMPONENT_MANAGER_INTERFACE_VERSION 1)
 
 #
 # Get the project version from either a version file or the Git revision. This is passed
@@ -67,6 +69,73 @@ function(__project_get_revision var)
         endif()
     endif()
     set(${var} "${PROJECT_VER}" PARENT_SCOPE)
+endfunction()
+
+function(__component_info components output)
+    set(components_json "")
+    foreach(name ${components})
+        __component_get_target(target ${name})
+        __component_get_property(alias ${target} COMPONENT_ALIAS)
+        __component_get_property(prefix ${target} __PREFIX)
+        __component_get_property(dir ${target} COMPONENT_DIR)
+        __component_get_property(type ${target} COMPONENT_TYPE)
+        __component_get_property(lib ${target} COMPONENT_LIB)
+        __component_get_property(reqs ${target} REQUIRES)
+        __component_get_property(include_dirs ${target} INCLUDE_DIRS)
+        __component_get_property(priv_reqs ${target} PRIV_REQUIRES)
+        __component_get_property(managed_reqs ${target} MANAGED_REQUIRES)
+        __component_get_property(managed_priv_reqs ${target} MANAGED_PRIV_REQUIRES)
+        if("${type}" STREQUAL "LIBRARY")
+            set(file "$<TARGET_LINKER_FILE:${lib}>")
+
+            # The idf_component_register function is converting each source file path defined
+            # in SRCS into absolute one. But source files can be also added with cmake's
+            # target_sources and have relative paths. This is used for example in log
+            # component. Let's make sure all source files have absolute path.
+            set(sources "")
+            get_target_property(srcs ${lib} SOURCES)
+            foreach(src ${srcs})
+                get_filename_component(src "${src}" ABSOLUTE BASE_DIR "${dir}")
+                list(APPEND sources "${src}")
+            endforeach()
+
+        else()
+            set(file "")
+            set(sources "")
+        endif()
+
+        make_json_list("${reqs}" reqs)
+        make_json_list("${priv_reqs}" priv_reqs)
+        make_json_list("${managed_reqs}" managed_reqs)
+        make_json_list("${managed_priv_reqs}" managed_priv_reqs)
+        make_json_list("${include_dirs}" include_dirs)
+        make_json_list("${sources}" sources)
+
+        string(CONCAT component_json
+            "        \"${name}\": {\n"
+            "            \"alias\": \"${alias}\",\n"
+            "            \"target\": \"${target}\",\n"
+            "            \"prefix\": \"${prefix}\",\n"
+            "            \"dir\": \"${dir}\",\n"
+            "            \"type\": \"${type}\",\n"
+            "            \"lib\": \"${lib}\",\n"
+            "            \"reqs\": ${reqs},\n"
+            "            \"priv_reqs\": ${priv_reqs},\n"
+            "            \"managed_reqs\": ${managed_reqs},\n"
+            "            \"managed_priv_reqs\": ${managed_priv_reqs},\n"
+            "            \"file\": \"${file}\",\n"
+            "            \"sources\": ${sources},\n"
+            "            \"include_dirs\": ${include_dirs}\n"
+            "        }"
+        )
+        string(CONFIGURE "${component_json}" component_json)
+        if(NOT "${components_json}" STREQUAL "")
+            string(APPEND components_json ",\n")
+        endif()
+        string(APPEND components_json "${component_json}")
+    endforeach()
+    set(components_json "{\n ${components_json}\n    }")
+    set(${output} "${components_json}" PARENT_SCOPE)
 endfunction()
 
 #
@@ -105,6 +174,7 @@ function(__project_info test_components)
     endforeach()
 
     set(PROJECT_NAME ${CMAKE_PROJECT_NAME})
+    idf_build_get_property(PROJECT_VER PROJECT_VER)
     idf_build_get_property(PROJECT_PATH PROJECT_DIR)
     idf_build_get_property(BUILD_DIR BUILD_DIR)
     idf_build_get_property(SDKCONFIG SDKCONFIG)
@@ -112,6 +182,7 @@ function(__project_info test_components)
     idf_build_get_property(PROJECT_EXECUTABLE EXECUTABLE)
     set(PROJECT_BIN ${CMAKE_PROJECT_NAME}.bin)
     idf_build_get_property(IDF_VER IDF_VER)
+    idf_build_get_property(common_component_reqs __COMPONENT_REQUIRES_COMMON)
 
     idf_build_get_property(sdkconfig_cmake SDKCONFIG_CMAKE)
     include(${sdkconfig_cmake})
@@ -122,8 +193,22 @@ function(__project_info test_components)
     idf_build_get_property(build_dir BUILD_DIR)
     make_json_list("${build_components};${test_components}" build_components_json)
     make_json_list("${build_component_paths};${test_component_paths}" build_component_paths_json)
+    make_json_list("${common_component_reqs}" common_component_reqs_json)
+
+    __component_info("${build_components};${test_components}" build_component_info_json)
+
+    # The configure_file function doesn't process generator expressions, which are needed
+    # e.g. to get component target library(TARGET_LINKER_FILE), so the project_description
+    # file is created in two steps. The first step, with configure_file, creates a temporary
+    # file with cmake's variables substituted and unprocessed generator expressions. The second
+    # step, with file(GENERATE), processes the temporary file and substitute generator expression
+    # into the final project_description.json file.
     configure_file("${idf_path}/tools/cmake/project_description.json.in"
-        "${build_dir}/project_description.json")
+        "${build_dir}/project_description.json.templ")
+    file(READ "${build_dir}/project_description.json.templ" project_description_json_templ)
+    file(REMOVE "${build_dir}/project_description.json.templ")
+    file(GENERATE OUTPUT "${build_dir}/project_description.json"
+         CONTENT "${project_description_json_templ}")
 
     # We now have the following component-related variables:
     #
@@ -340,7 +425,14 @@ macro(project project_name)
     # PROJECT_NAME is taken from the passed name from project() call
     # PROJECT_DIR is set to the current directory
     # PROJECT_VER is from the version text or git revision of the current repo
-    set(_sdkconfig_defaults "$ENV{SDKCONFIG_DEFAULTS}")
+
+    # SDKCONFIG_DEFAULTS environment variable may specify a file name relative to the root of the project.
+    # When building the bootloader, ignore this variable, since:
+    # 1. The bootloader project uses an existing SDKCONFIG file from the top-level project
+    # 2. File specified by SDKCONFIG_DEFAULTS will not be found relative to the root of the bootloader project
+    if(NOT BOOTLOADER_BUILD)
+        set(_sdkconfig_defaults "$ENV{SDKCONFIG_DEFAULTS}")
+    endif()
 
     if(NOT _sdkconfig_defaults)
         if(EXISTS "${CMAKE_SOURCE_DIR}/sdkconfig.defaults")
@@ -401,8 +493,10 @@ macro(project project_name)
         __component_get_target(main_target idf::main)
         __component_get_property(reqs ${main_target} REQUIRES)
         __component_get_property(priv_reqs ${main_target} PRIV_REQUIRES)
-        idf_build_get_property(common_reqs __COMPONENT_REQUIRES_COMMON)
-        if(reqs STREQUAL common_reqs AND NOT priv_reqs) #if user has not set any requirements
+        __component_get_property(managed_reqs ${main_target} MANAGED_REQUIRES)
+        __component_get_property(managed_priv_reqs ${main_target} MANAGED_PRIV_REQUIRES)
+        #if user has not set any requirements, except ones added with the component manager
+        if((NOT reqs OR reqs STREQUAL managed_reqs) AND (NOT priv_reqs OR priv_reqs STREQUAL managed_priv_reqs))
             if(test_components)
                 list(REMOVE_ITEM build_components ${test_components})
             endif()

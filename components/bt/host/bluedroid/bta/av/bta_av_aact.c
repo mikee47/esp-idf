@@ -1285,11 +1285,11 @@ void bta_av_setconfig_rsp (tBTA_AV_SCB *p_scb, tBTA_AV_DATA *p_data)
 
         if (p_scb->codec_type == BTA_AV_CODEC_SBC || num > 1) {
             /* if SBC is used by the SNK as INT, discover req is not sent in bta_av_config_ind.
-                       * call disc_res now */
+                       * call cfg_res now */
             /* this is called in A2DP SRC path only, In case of SINK we don't need it  */
             if (local_sep == AVDT_TSEP_SRC) {
-                p_scb->p_cos->disc_res(p_scb->hndl, num, num, 0, p_scb->peer_addr,
-                                       UUID_SERVCLASS_AUDIO_SOURCE);
+                p_scb->p_cos->cfg_res(p_scb->hndl, num, num, 0, p_scb->peer_addr,
+                                      UUID_SERVCLASS_AUDIO_SOURCE);
             }
         } else {
             /* we do not know the peer device and it is using non-SBC codec
@@ -1897,7 +1897,7 @@ void bta_av_setconfig_rej (tBTA_AV_SCB *p_scb, tBTA_AV_DATA *p_data)
 
     bta_av_adjust_seps_idx(p_scb, avdt_handle);
     APPL_TRACE_DEBUG("bta_av_setconfig_rej: sep_idx: %d", p_scb->sep_idx);
-    AVDT_ConfigRsp(p_scb->avdt_handle, p_scb->avdt_label, AVDT_ERR_UNSUP_CFG, 0);
+    AVDT_ConfigRsp(p_scb->avdt_handle, p_scb->avdt_label, p_data->ci_setconfig.err_code, 0);
 
     bdcpy(reject.bd_addr, p_data->str_msg.bd_addr);
     reject.hndl = p_scb->hndl;

@@ -59,6 +59,7 @@ typedef enum {
     UART_INTR_RS485_FRM_ERR    = (0x1 << 16),
     UART_INTR_RS485_CLASH      = (0x1 << 17),
     UART_INTR_CMD_CHAR_DET     = (0x1 << 18),
+    UART_INTR_WAKEUP           = (0x1 << 19),
 } uart_intr_t;
 
 static inline void uart_ll_set_reset_core(uart_dev_t *hw, bool core_rst_en) {
@@ -209,6 +210,18 @@ static inline void uart_ll_ena_intr_mask(uart_dev_t *hw, uint32_t mask)
 static inline void uart_ll_disable_intr_mask(uart_dev_t *hw, uint32_t mask)
 {
     hw->int_ena.val &= (~mask);
+}
+
+/**
+ * @brief  Get the UART raw interrupt status.
+ *
+ * @param  hw Beginning address of the peripheral registers.
+ *
+ * @return The UART interrupt status.
+ */
+static inline uint32_t uart_ll_get_intraw_mask(uart_dev_t *hw)
+{
+    return hw->int_raw.val;
 }
 
 /**

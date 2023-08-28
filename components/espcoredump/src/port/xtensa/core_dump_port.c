@@ -324,10 +324,10 @@ bool esp_core_dump_check_stack(core_dump_task_header_t *task)
  */
 bool esp_core_dump_mem_seg_is_sane(uint32_t addr, uint32_t sz)
 {
-    //TODO: external SRAM not supported yet
     return (esp_ptr_in_dram((void *)addr) && esp_ptr_in_dram((void *)(addr+sz-1)))
         || (esp_ptr_in_rtc_slow((void *)addr) && esp_ptr_in_rtc_slow((void *)(addr+sz-1)))
         || (esp_ptr_in_rtc_dram_fast((void *)addr) && esp_ptr_in_rtc_dram_fast((void *)(addr+sz-1)))
+        || (esp_ptr_external_ram((void *)addr) && esp_ptr_external_ram((void *)(addr+sz-1)))
         || (esp_ptr_in_iram((void *)addr) && esp_ptr_in_iram((void *)(addr+sz-1)));
 }
 
@@ -400,7 +400,7 @@ bool esp_core_dump_check_task(core_dump_task_header_t *task)
                                         sol_frame->a1);
         } else {
     // to avoid warning that 'exc_frame' is unused when ESP_COREDUMP_LOG_PROCESS does nothing
-    #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH
+    #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_LOGS
             XtExcFrame *exc_frame = (XtExcFrame *)task->stack_start;
             ESP_COREDUMP_LOG_PROCESS("Task (TCB:%x) EXIT/PC/PS/A0/SP %x %x %x %x %x",
                                         task->tcb_addr,

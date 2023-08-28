@@ -71,6 +71,7 @@ static BOOLEAN bta_dm_check_av(UINT16 event);
 static void bta_dm_bl_change_cback (tBTM_BL_EVENT_DATA *p_data);
 
 
+static void bta_dm_acl_link_stat_cback(tBTM_ACL_LINK_STAT_EVENT_DATA *p_data);
 static void bta_dm_policy_cback(tBTA_SYS_CONN_STATUS status, UINT8 id, UINT8 app_id, BD_ADDR peer_addr);
 
 /* Extended Inquiry Response */
@@ -511,6 +512,7 @@ static void bta_dm_sys_hw_cback( tBTA_SYS_HW_EVT status )
         BTM_SetDefaultLinkPolicy(bta_dm_cb.cur_policy);
 #endif
         BTM_RegBusyLevelNotif (bta_dm_bl_change_cback, NULL, BTM_BL_UPDATE_MASK | BTM_BL_ROLE_CHG_MASK);
+        BTM_RegAclLinkStatNotif (bta_dm_acl_link_stat_cback);
 
 #if BLE_VND_INCLUDED == TRUE
         BTM_BleReadControllerFeatures (bta_dm_ctrl_features_rd_cmpl_cback);
@@ -673,6 +675,27 @@ void bta_dm_set_dev_name (tBTA_DM_MSG *p_data)
 
 /*******************************************************************************
 **
+** Function         bta_dm_get_dev_name
+**
+** Description      Gets local device name
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void bta_dm_get_dev_name (tBTA_DM_MSG *p_data)
+{
+    tBTM_STATUS status;
+    char *name = NULL;
+
+    status = BTM_ReadLocalDeviceName(&name);
+    if (p_data->get_name.p_cback) {
+        (*p_data->get_name.p_cback)(status, name);
+    }
+}
+
+/*******************************************************************************
+**
 ** Function         bta_dm_set_afh_channels
 **
 ** Description      Sets AFH channels
@@ -822,14 +845,14 @@ void bta_dm_ble_set_channels (tBTA_DM_MSG *p_data)
 void bta_dm_update_white_list(tBTA_DM_MSG *p_data)
 {
 #if (BLE_INCLUDED == TRUE)
-    BTM_BleUpdateAdvWhitelist(p_data->white_list.add_remove, p_data->white_list.remote_addr, p_data->white_list.addr_type, p_data->white_list.add_wl_cb);
+    BTM_BleUpdateAdvWhitelist(p_data->white_list.add_remove, p_data->white_list.remote_addr, p_data->white_list.addr_type, p_data->white_list.update_wl_cb);
 #endif  ///BLE_INCLUDED == TRUE
 }
 
 void bta_dm_clear_white_list(tBTA_DM_MSG *p_data)
 {
 #if (BLE_INCLUDED == TRUE)
-    BTM_BleClearWhitelist();
+    BTM_BleClearWhitelist(p_data->white_list.update_wl_cb);
 #endif
 }
 
@@ -959,10 +982,6 @@ static void bta_dm_process_remove_device(BD_ADDR bd_addr, tBT_TRANSPORT transpor
 
     BTM_SecDeleteDevice(bd_addr, transport);
 
-#if (BLE_INCLUDED == TRUE && GATTC_INCLUDED == TRUE)
-    /* remove all cached GATT information */
-    BTA_GATTC_Refresh(bd_addr, false);
-#endif
     if (bta_dm_cb.p_sec_cback) {
         tBTA_DM_SEC sec_event;
         bdcpy(sec_event.link_down.bd_addr, bd_addr);
@@ -1117,8 +1136,6 @@ void bta_dm_close_acl(tBTA_DM_MSG *p_data)
 #if (BLE_INCLUDED == TRUE && GATTC_INCLUDED == TRUE)
         /* need to remove all pending background connection if any */
         BTA_GATTC_CancelOpen(0, p_remove_acl->bd_addr, FALSE);
-        /* remove all cached GATT information */
-        BTA_GATTC_Refresh(p_remove_acl->bd_addr, false);
 #endif
     }
     /* otherwise, no action needed */
@@ -3319,6 +3336,45 @@ static void bta_dm_bl_change_cback (tBTM_BL_EVENT_DATA *p_data)
 
 /*******************************************************************************
 **
+** Function         bta_dm_acl_link_stat_cback
+**
+** Description      Callback from btm to report acl link status
+**
+** Returns          void
+**
+*******************************************************************************/
+static void bta_dm_acl_link_stat_cback(tBTM_ACL_LINK_STAT_EVENT_DATA *p_data)
+{
+    tBTA_DM_SEC sec_event;
+    memset(&sec_event, 0, sizeof(tBTA_DM_SEC));
+    sec_event.acl_link_stat.event = p_data->event;
+
+    switch (sec_event.acl_link_stat.event) {
+    case BTA_ACL_LINK_STAT_CONN_CMPL: {
+        sec_event.acl_link_stat.link_act.conn_cmpl.status = p_data->link_act.conn_cmpl.status;
+        sec_event.acl_link_stat.link_act.conn_cmpl.handle = p_data->link_act.conn_cmpl.handle;
+        bdcpy(sec_event.acl_link_stat.link_act.conn_cmpl.bd_addr, p_data->link_act.conn_cmpl.bd_addr);
+        break;
+    }
+    case BTA_ACL_LINK_STAT_DISCONN_CMPL: {
+        sec_event.acl_link_stat.link_act.disconn_cmpl.reason = p_data->link_act.disconn_cmpl.reason;
+        sec_event.acl_link_stat.link_act.disconn_cmpl.handle = p_data->link_act.disconn_cmpl.handle;
+        bdcpy(sec_event.acl_link_stat.link_act.disconn_cmpl.bd_addr, p_data->link_act.disconn_cmpl.bd_addr);
+        break;
+    }
+    default: {
+        APPL_TRACE_WARNING("bta_dm_acl_link_stat: invalid event %d", sec_event.acl_link_stat.event);
+        return;
+    }
+    }
+
+    if (bta_dm_cb.p_sec_cback) {
+        (*bta_dm_cb.p_sec_cback)(BTA_DM_ACL_LINK_STAT_EVT, &sec_event);
+    }
+}
+
+/*******************************************************************************
+**
 ** Function         bta_dm_rs_cback
 **
 ** Description      Receives the role switch complete event
@@ -3574,8 +3630,6 @@ void bta_dm_acl_change(tBTA_DM_MSG *p_data)
 #if (BLE_INCLUDED == TRUE && GATTC_INCLUDED == TRUE)
             /* need to remove all pending background connection */
             BTA_GATTC_CancelOpen(0, p_bda, FALSE);
-            /* remove all cached GATT information */
-            BTA_GATTC_Refresh(p_bda, false);
 #endif
         }
 
@@ -3753,8 +3807,6 @@ static BOOLEAN bta_dm_remove_sec_dev_entry(BD_ADDR remote_bd_addr)
 #if (BLE_INCLUDED == TRUE && GATTC_INCLUDED == TRUE)
         /* need to remove all pending background connection */
         BTA_GATTC_CancelOpen(0, remote_bd_addr, FALSE);
-        /* remove all cached GATT information */
-        BTA_GATTC_Refresh(remote_bd_addr, false);
 #endif
     }
     return is_device_deleted;

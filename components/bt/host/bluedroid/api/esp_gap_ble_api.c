@@ -391,6 +391,19 @@ esp_err_t esp_ble_gap_set_device_name(const char *name)
     return esp_bt_dev_set_device_name(name);
 }
 
+esp_err_t esp_ble_gap_get_device_name(void)
+{
+    btc_msg_t msg = {0};
+
+    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_GAP_BLE;
+    msg.act = BTC_GAP_BLE_ACT_GET_DEV_NAME;
+
+    return (btc_transfer_context(&msg, NULL, 0, NULL, NULL) == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
+}
+
 esp_err_t esp_ble_gap_get_local_used_addr(esp_bd_addr_t local_used_addr, uint8_t * addr_type)
 {
     if(esp_bluedroid_get_status() != (ESP_BLUEDROID_STATUS_ENABLED)) {
@@ -426,8 +439,7 @@ esp_err_t esp_ble_gap_config_adv_data_raw(uint8_t *raw_data, uint32_t raw_data_l
 
     ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
 
-    if (raw_data == NULL
-            || (raw_data_len <= 0 || raw_data_len > ESP_BLE_ADV_DATA_LEN_MAX)) {
+    if ((raw_data_len != 0 && raw_data == NULL) || raw_data_len > ESP_BLE_ADV_DATA_LEN_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -568,6 +580,10 @@ esp_err_t esp_ble_gap_set_security_param(esp_ble_sm_param_t param_type,
         if(passkey > 999999) {
             return ESP_ERR_INVALID_ARG;
         }
+    }
+    if (param_type == ESP_BLE_APP_ENC_KEY_SIZE) {
+        LOG_ERROR("ESP_BLE_APP_ENC_KEY_SIZE is deprecated, use ESP_GATT_PERM_ENCRYPT_KEY_SIZE in characteristic definition");
+        return ESP_ERR_NOT_SUPPORTED;
     }
 
     btc_msg_t msg = {0};

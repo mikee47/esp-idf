@@ -176,6 +176,8 @@ typedef struct {
 
 typedef UINT16 tBTA_SEC;
 
+typedef tBTM_GET_DEV_NAME_CBACK tBTA_GET_DEV_NAME_CBACK;
+
 /* Ignore for Discoverable, Connectable, Pairable and Connectable Paired only device modes */
 #define BTA_DM_IGNORE           0x00FF
 
@@ -418,7 +420,7 @@ typedef tBTM_START_ADV_CMPL_CBACK tBTA_START_ADV_CMPL_CBACK;
 
 typedef tBTM_START_STOP_ADV_CMPL_CBACK tBTA_START_STOP_ADV_CMPL_CBACK;
 
-typedef tBTM_ADD_WHITELIST_CBACK tBTA_ADD_WHITELIST_CBACK;
+typedef tBTM_UPDATE_WHITELIST_CBACK tBTA_UPDATE_WHITELIST_CBACK;
 
 typedef tBTM_SET_PKT_DATA_LENGTH_CBACK tBTA_SET_PKT_DATA_LENGTH_CBACK;
 
@@ -656,6 +658,7 @@ typedef UINT8 tBTA_SIG_STRENGTH_MASK;
 #define BTA_DM_BLE_DEV_UNPAIRED_EVT     29      /* BLE unpair event */
 #define BTA_DM_SP_KEY_REQ_EVT           30      /* Simple Pairing Passkey request */
 #define BTA_DM_PM_MODE_CHG_EVT          31      /* Mode changed event */
+#define BTA_DM_ACL_LINK_STAT_EVT        32      /* ACL connection status report event */
 
 typedef UINT8 tBTA_DM_SEC_EVT;
 
@@ -819,6 +822,33 @@ typedef struct {
 #endif
 } tBTA_DM_LINK_DOWN;
 
+enum {
+    BTA_ACL_LINK_STAT_CONN_CMPL,
+    BTA_ACL_LINK_STAT_DISCONN_CMPL
+};
+typedef UINT8 tBTA_ACL_LINK_STAT_EVT;
+
+typedef struct {
+    UINT8      status;             /* ACL link connection status */
+    UINT16     handle;             /* ACL connection handle */
+    BD_ADDR    bd_addr;            /* peer bluetooth address */
+} tBTA_DM_ACL_CONN_CMPL_STAT;
+
+typedef struct {
+    UINT8     reason;             /* ACL link disconnection reason */
+    UINT16    handle;             /* ACL connection handle */
+    BD_ADDR   bd_addr;            /* peer bluetooth address */
+} tBTA_DM_ACL_DISCONN_CMPL_STAT;
+
+/* Structure associated with BTA_DM_ACL_LINK_STAT_EVT */
+typedef struct {
+    tBTA_ACL_LINK_STAT_EVT            event;       /* ACL link event */
+    union {
+        tBTA_DM_ACL_CONN_CMPL_STAT     conn_cmpl;
+        tBTA_DM_ACL_DISCONN_CMPL_STAT  disconn_cmpl;
+    } link_act;
+} tBTA_DM_ACL_LINK_STAT;
+
 /* Structure associated with BTA_DM_ROLE_CHG_EVT */
 typedef struct {
     BD_ADDR         bd_addr;            /* BD address peer device. */
@@ -957,6 +987,7 @@ typedef union {
     tBTA_DM_AUTHORIZE           authorize;          /* Authorization request. */
     tBTA_DM_LINK_UP             link_up;            /* ACL connection up event */
     tBTA_DM_LINK_DOWN           link_down;          /* ACL connection down event */
+    tBTA_DM_ACL_LINK_STAT       acl_link_stat;      /* ACL link status event */
     tBTA_DM_BUSY_LEVEL          busy_level;         /* System busy level */
     tBTA_DM_SP_CFM_REQ          cfm_req;            /* user confirm request */
     tBTA_DM_SP_KEY_REQ          key_req;            /* user passkey request */
@@ -1645,6 +1676,18 @@ extern void BTA_DmSetDeviceName(const char *p_name);
 
 /*******************************************************************************
 **
+** Function         BTA_DmGetDeviceName
+**
+** Description      This function gets the Bluetooth name of the local device.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+extern void BTA_DmGetDeviceName(tBTA_GET_DEV_NAME_CBACK *p_cback);
+
+/*******************************************************************************
+**
 ** Function         BTA_DmGetRemoteName
 **
 ** Description      This function gets the peer device's Bluetooth name.
@@ -1706,9 +1749,9 @@ void BTA_DmSetQos(BD_ADDR bd_addr, UINT32 t_poll, tBTM_CMPL_CB *p_cb);
 *******************************************************************************/
 void BTA_DmBleSetChannels(const uint8_t *channels, tBTA_CMPL_CB  *set_channels_cb);
 
-extern void BTA_DmUpdateWhiteList(BOOLEAN add_remove,  BD_ADDR remote_addr, tBLE_ADDR_TYPE addr_type, tBTA_ADD_WHITELIST_CBACK *add_wl_cb);
+extern void BTA_DmUpdateWhiteList(BOOLEAN add_remove,  BD_ADDR remote_addr, tBLE_ADDR_TYPE addr_type, tBTA_UPDATE_WHITELIST_CBACK *update_wl_cb);
 
-extern void BTA_DmClearWhiteList(void);
+extern void BTA_DmClearWhiteList(tBTA_UPDATE_WHITELIST_CBACK *update_wl_cb);
 
 extern void BTA_DmBleReadAdvTxPower(tBTA_CMPL_CB *cmpl_cb);
 #endif  ///BLE_INCLUDED == TRUE

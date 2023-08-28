@@ -40,6 +40,11 @@ struct wpa_sm {
     u8 rx_replay_counter[WPA_REPLAY_COUNTER_LEN];
     int rx_replay_counter_set;
     u8 request_counter[WPA_REPLAY_COUNTER_LEN];
+    struct wpa_gtk gtk;
+#ifdef CONFIG_IEEE80211W
+    struct wpa_igtk igtk;
+#endif /* CONFIG_IEEE80211W */
+
     struct rsn_pmksa_cache *pmksa; /* PMKSA cache */
     struct rsn_pmksa_cache_entry *cur_pmksa; /* current PMKSA entry */
     u8 ssid[32];
@@ -166,7 +171,7 @@ bool wpa_sm_init(char * payload, WPA_SEND_FUNC snd_func, \
 
 void wpa_sm_deinit(void);
 
-void eapol_txcb(void *eb);
+void eapol_txcb(uint8_t *eapol_payload, size_t len, bool tx_failure);
 
 void wpa_set_profile(u32 wpa_proto, u8 auth_mode);
 

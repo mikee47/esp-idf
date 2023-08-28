@@ -117,8 +117,8 @@ static void bta_av_co_audio_peer_reset_config(tBTA_AV_CO_PEER *p_peer);
 static BOOLEAN bta_av_co_cp_is_scmst(const UINT8 *p_protectinfo);
 static BOOLEAN bta_av_co_audio_sink_has_scmst(const tBTA_AV_CO_SINK *p_sink);
 static BOOLEAN bta_av_co_audio_peer_supports_codec(tBTA_AV_CO_PEER *p_peer, UINT8 *p_snk_index);
-static BOOLEAN bta_av_co_audio_media_supports_config(UINT8 codec_type, const UINT8 *p_codec_cfg);
-static BOOLEAN bta_av_co_audio_sink_supports_config(UINT8 codec_type, const UINT8 *p_codec_cfg);
+static UINT8 bta_av_co_audio_media_supports_config(UINT8 codec_type, const UINT8 *p_codec_cfg);
+static UINT8 bta_av_co_audio_sink_supports_config(UINT8 codec_type, const UINT8 *p_codec_cfg);
 static BOOLEAN bta_av_co_audio_peer_src_supports_codec(tBTA_AV_CO_PEER *p_peer, UINT8 *p_src_index);
 
 
@@ -307,6 +307,58 @@ void bta_av_co_audio_disc_res(tBTA_AV_HNDL hndl, UINT8 num_seps, UINT8 num_snk,
     p_peer->num_rx_snks = 0;
     p_peer->num_rx_srcs = 0;
     p_peer->num_sup_snks = 0;
+    if (uuid_local == UUID_SERVCLASS_AUDIO_SINK) {
+        p_peer->uuid_to_connect = UUID_SERVCLASS_AUDIO_SOURCE;
+    } else if (uuid_local == UUID_SERVCLASS_AUDIO_SOURCE) {
+        p_peer->uuid_to_connect = UUID_SERVCLASS_AUDIO_SINK;
+    }
+    p_peer->got_disc_res = TRUE;
+}
+
+/*******************************************************************************
+ **
+ ** Function         bta_av_co_audio_cfg_res
+ **
+ ** Description      This callout function is executed by AV to report the
+ **                  number of stream end points (SEP) were found during the
+ **                  incoming AVDT stream config request process.
+ **
+ **
+ ** Returns          void.
+ **
+ *******************************************************************************/
+void bta_av_co_audio_cfg_res(tBTA_AV_HNDL hndl, UINT8 num_seps, UINT8 num_snk,
+                              UINT8 num_src, BD_ADDR addr, UINT16 uuid_local)
+{
+    tBTA_AV_CO_PEER *p_peer;
+
+    FUNC_TRACE();
+
+    APPL_TRACE_DEBUG("bta_av_co_audio_cfg_res h:x%x num_seps:%d num_snk:%d num_src:%d",
+                     hndl, num_seps, num_snk, num_src);
+
+    /* Find the peer info */
+    p_peer = bta_av_co_get_peer(hndl);
+    if (p_peer == NULL) {
+        APPL_TRACE_ERROR("bta_av_co_audio_cfg_res could not find peer entry");
+        return;
+    }
+
+    /* Sanity check : this should never happen */
+    if (p_peer->opened) {
+        APPL_TRACE_ERROR("bta_av_co_audio_cfg_res peer already opened");
+    }
+
+    /* Copy the discovery results */
+    bdcpy(p_peer->addr, addr);
+    if (!p_peer->got_disc_res) {
+        p_peer->num_snks = num_snk;
+        p_peer->num_srcs = num_src;
+        p_peer->num_seps = num_seps;
+        p_peer->num_rx_snks = 0;
+        p_peer->num_rx_srcs = 0;
+        p_peer->num_sup_snks = 0;
+    }
     if (uuid_local == UUID_SERVCLASS_AUDIO_SINK) {
         p_peer->uuid_to_connect = UUID_SERVCLASS_AUDIO_SOURCE;
     } else if (uuid_local == UUID_SERVCLASS_AUDIO_SOURCE) {
@@ -660,7 +712,7 @@ void bta_av_co_audio_setconfig(tBTA_AV_HNDL hndl, tBTA_AV_CODEC codec_type,
     UINT8 status = A2D_SUCCESS;
     UINT8 category = A2D_SUCCESS;
     BOOLEAN recfg_needed = FALSE;
-    BOOLEAN codec_cfg_supported = FALSE;
+    UINT8 codec_cfg_status = A2D_SUCCESS;
     UNUSED(seid);
     UNUSED(addr);
 
@@ -709,15 +761,15 @@ void bta_av_co_audio_setconfig(tBTA_AV_HNDL hndl, tBTA_AV_CODEC codec_type,
 #endif
     if (status == A2D_SUCCESS) {
         if (AVDT_TSEP_SNK == t_local_sep) {
-            codec_cfg_supported = bta_av_co_audio_sink_supports_config(codec_type, p_codec_info);
+            codec_cfg_status = bta_av_co_audio_sink_supports_config(codec_type, p_codec_info);
             APPL_TRACE_DEBUG(" Peer is  A2DP SRC ");
         }
         if (AVDT_TSEP_SRC == t_local_sep) {
-            codec_cfg_supported = bta_av_co_audio_media_supports_config(codec_type, p_codec_info);
+            codec_cfg_status = bta_av_co_audio_media_supports_config(codec_type, p_codec_info);
             APPL_TRACE_DEBUG(" Peer is A2DP SINK ");
         }
         /* Check if codec configuration is supported */
-        if (codec_cfg_supported) {
+        if (codec_cfg_status == A2D_SUCCESS) {
 
             /* Protect access to bta_av_co_cb.codec_cfg */
             osi_mutex_global_lock();
@@ -757,15 +809,15 @@ void bta_av_co_audio_setconfig(tBTA_AV_HNDL hndl, tBTA_AV_CODEC codec_type,
             osi_mutex_global_unlock();
         } else {
             category = AVDT_ASC_CODEC;
-            status = A2D_WRONG_CODEC;
+            status = A2D_FAIL;
         }
     }
 
     if (status != A2D_SUCCESS) {
-        APPL_TRACE_DEBUG("bta_av_co_audio_setconfig reject s=%d c=%d", status, category);
+        APPL_TRACE_DEBUG("bta_av_co_audio_setconfig reject s=%d c=%d", codec_cfg_status, category);
 
         /* Call call-in rejecting the configuration */
-        bta_av_ci_setconfig(hndl, status, category, 0, NULL, FALSE, avdt_handle);
+        bta_av_ci_setconfig(hndl, codec_cfg_status, category, 0, NULL, FALSE, avdt_handle);
     } else {
         /* Mark that this is an acceptor peer */
         p_peer->acp = TRUE;
@@ -1273,24 +1325,26 @@ static BOOLEAN bta_av_co_audio_peer_src_supports_codec(tBTA_AV_CO_PEER *p_peer, 
  ** Returns          TRUE if the media source supports this config, FALSE otherwise
  **
  *******************************************************************************/
-static BOOLEAN bta_av_co_audio_sink_supports_config(UINT8 codec_type, const UINT8 *p_codec_cfg)
+static UINT8 bta_av_co_audio_sink_supports_config(UINT8 codec_type, const UINT8 *p_codec_cfg)
 {
     FUNC_TRACE();
+    UINT8 status = A2D_BAD_CODEC_TYPE;
 
     switch (codec_type) {
     case BTA_AV_CODEC_SBC:
-        if (bta_av_sbc_cfg_in_cap((UINT8 *)p_codec_cfg, (tA2D_SBC_CIE *)&bta_av_co_sbc_sink_caps)) {
-            return FALSE;
-        }
+        status = bta_av_sbc_cfg_in_cap((UINT8 *)p_codec_cfg, (tA2D_SBC_CIE *)&bta_av_co_sbc_sink_caps);
         break;
-
-
+    case BTA_AV_CODEC_M12:
+    case BTA_AV_CODEC_M24:
+    case BTA_AV_CODEC_ATRAC:
+        status = A2D_NS_CODEC_TYPE;
+        APPL_TRACE_ERROR("bta_av_co_audio_sink_supports_config unsupported codec type %d", codec_type);
+        break;
     default:
-        APPL_TRACE_ERROR("bta_av_co_audio_media_supports_config unsupported codec type %d", codec_type);
-        return FALSE;
+        APPL_TRACE_ERROR("bta_av_co_audio_sink_supports_config invalid codec type %d", codec_type);
         break;
     }
-    return TRUE;
+    return status;
 }
 
 /*******************************************************************************
@@ -1302,24 +1356,26 @@ static BOOLEAN bta_av_co_audio_sink_supports_config(UINT8 codec_type, const UINT
  ** Returns          TRUE if the media source supports this config, FALSE otherwise
  **
  *******************************************************************************/
-static BOOLEAN bta_av_co_audio_media_supports_config(UINT8 codec_type, const UINT8 *p_codec_cfg)
+static UINT8 bta_av_co_audio_media_supports_config(UINT8 codec_type, const UINT8 *p_codec_cfg)
 {
     FUNC_TRACE();
+    UINT8 status = A2D_BAD_CODEC_TYPE;
 
     switch (codec_type) {
     case BTA_AV_CODEC_SBC:
-        if (bta_av_sbc_cfg_in_cap((UINT8 *)p_codec_cfg, (tA2D_SBC_CIE *)&bta_av_co_sbc_caps)) {
-            return FALSE;
-        }
+        status = bta_av_sbc_cfg_in_cap((UINT8 *)p_codec_cfg, (tA2D_SBC_CIE *)&bta_av_co_sbc_caps);
         break;
-
-
-    default:
+    case BTA_AV_CODEC_M12:
+    case BTA_AV_CODEC_M24:
+    case BTA_AV_CODEC_ATRAC:
+        status = A2D_NS_CODEC_TYPE;
         APPL_TRACE_ERROR("bta_av_co_audio_media_supports_config unsupported codec type %d", codec_type);
-        return FALSE;
+        break;
+    default:
+        APPL_TRACE_ERROR("bta_av_co_audio_media_supports_config invalid codec type %d", codec_type);
         break;
     }
-    return TRUE;
+    return status;
 }
 
 /*******************************************************************************
@@ -1692,6 +1748,7 @@ BOOLEAN bta_av_co_get_remote_bitpool_pref(UINT8 *min, UINT8 *max)
 const tBTA_AV_CO_FUNCTS bta_av_a2d_cos = {
     bta_av_co_audio_init,
     bta_av_co_audio_disc_res,
+    bta_av_co_audio_cfg_res,
     bta_av_co_audio_getconfig,
     bta_av_co_audio_setconfig,
     bta_av_co_audio_open,

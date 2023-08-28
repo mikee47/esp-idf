@@ -133,7 +133,7 @@ typedef union {
     } search_res;                       /*!< Gatt client callback param of ESP_GATTC_SEARCH_RES_EVT */
 
     /**
-     * @brief ESP_GATTC_READ_CHAR_EVT,  ESP_GATTC_READ_DESCR_EVT
+     * @brief ESP_GATTC_READ_CHAR_EVT, ESP_GATTC_READ_DESCR_EVT, ESP_GATTC_READ_MULTIPLE_EVT, ESP_GATTC_READ_MULTI_VAR_EVT
      */
     struct gattc_read_char_evt_param {
 
@@ -212,6 +212,8 @@ typedef union {
         uint8_t link_role;              /*!< Link role : master role = 0  ; slave role = 1*/
         esp_bd_addr_t remote_bda;       /*!< Remote bluetooth device address */
         esp_gatt_conn_params_t conn_params; /*!< current connection parameters */
+        esp_ble_addr_type_t ble_addr_type;  /*!< Remote BLE device address type */
+        uint16_t conn_handle;           /*!< HCI connection handle */
     } connect;                          /*!< Gatt client callback param of ESP_GATTC_CONNECT_EVT */
 
     /**
