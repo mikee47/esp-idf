@@ -7,6 +7,7 @@
 #include <string.h>
 #include "esp_chip_info.h"
 #include "soc/soc.h"
+#include "soc/chip_revision.h"
 #include "soc/efuse_reg.h"
 #include "esp_efuse.h"
 #include "hal/efuse_hal.h"
@@ -36,7 +37,8 @@ void esp_chip_info(esp_chip_info_t* out_info)
         package == EFUSE_RD_CHIP_VER_PKG_ESP32PICOV302) {
         out_info->features |= CHIP_FEATURE_EMB_FLASH;
     }
-    if(package == EFUSE_RD_CHIP_VER_PKG_ESP32D0WDR2V3) {
+    if(package == EFUSE_RD_CHIP_VER_PKG_ESP32D0WDR2V3 ||
+       package == EFUSE_RD_CHIP_VER_PKG_ESP32PICOV302) {
         out_info->features |= CHIP_FEATURE_EMB_PSRAM;
     }
 }
@@ -44,6 +46,7 @@ void esp_chip_info(esp_chip_info_t* out_info)
 #if CONFIG_ESP32_ECO3_CACHE_LOCK_FIX
 inline bool soc_has_cache_lock_bug(void)
 {
-    return (efuse_hal_get_major_chip_version() == 3);
+    unsigned rev = efuse_hal_chip_revision();
+    return ESP_CHIP_REV_ABOVE(rev, 300);
 }
 #endif

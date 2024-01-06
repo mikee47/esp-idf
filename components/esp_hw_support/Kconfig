@@ -14,6 +14,15 @@ menu "Hardware Settings"
 
             # Insert chip-specific MAC config
             rsource "./port/$IDF_TARGET/Kconfig.mac"
+
+        config ESP_MAC_IGNORE_MAC_CRC_ERROR
+            bool "Ignore MAC CRC error (not recommended)"
+            depends on IDF_TARGET_ESP32
+            default n
+            help
+                If you have an invalid MAC CRC (ESP_ERR_INVALID_CRC) problem
+                and you still want to use this chip, you can enable this option to bypass such an error.
+                This applies to both MAC_FACTORY and CUSTOM_MAC efuses.
     endmenu
 
     menu "Sleep Config"
@@ -82,6 +91,25 @@ menu "Hardware Settings"
                 To reduce leakage current, some types of SPI Flash/RAM only need to pull up the CS pin
                 during light sleep. But there are also some kinds of SPI Flash/RAM that need to pull up
                 all pins. It depends on the SPI Flash/RAM chip used.
+
+        config ESP_SLEEP_GPIO_ENABLE_INTERNAL_RESISTORS
+            bool "Allow to enable internal pull-up/downs for the Deep-Sleep wakeup IOs"
+            default y
+            help
+                When using rtc gpio wakeup source during deepsleep without external pull-up/downs, you may want to
+                make use of the internal ones.
+    endmenu
+
+    menu "ESP_SLEEP_WORKAROUND"
+        # No visible menu/configs for workaround
+        visible if 0
+        config ESP_SLEEP_SYSTIMER_STALL_WORKAROUND
+            bool "ESP32C3 SYSTIMER Stall Issue Workaround"
+            depends on IDF_TARGET_ESP32C3
+            help
+                Its not able to stall ESP32C3 systimer in sleep.
+                To fix related RTOS TICK issue, select it to disable related systimer during sleep.
+                TODO: IDF-7036
     endmenu
 
     menu "RTC Clock Config"

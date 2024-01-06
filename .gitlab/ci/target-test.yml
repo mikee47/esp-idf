@@ -96,6 +96,12 @@ example_test_001B:
     - ESP32
     - Example_EthKitV1
 
+example_test_httpbin:
+  extends: .example_test_esp32_template
+  tags:
+    - ESP32
+    - httpbin
+
 example_test_001B_V3:
   extends: .example_test_esp32_template
   tags:
@@ -357,7 +363,6 @@ test_app_test_003:
 
 test_app_test_004:
   extends: .test_app_esp32s2_template
-  parallel: 2
   tags:
     - ESP32S2
     - Example_GENERIC
@@ -366,6 +371,12 @@ test_app_test_005:
   extends: .test_app_esp32c3_template
   tags:
     - ESP32C3
+    - Example_GENERIC
+
+test_app_test_006:
+  extends: .test_app_esp32s3_template
+  tags:
+    - ESP32S3
     - Example_GENERIC
 
 test_app_test_esp32_generic:
@@ -394,6 +405,12 @@ test_app_test_flash_psram_f8r8:
   tags:
     - ESP32S3
     - MSPI_F8R8
+
+test_app_test_flash_psram_esp32:
+  extends: .test_app_esp32_template
+  tags:
+    - ESP32
+    - psram
 
 .component_ut_template:
   extends: .target_test_job_template
@@ -498,7 +515,7 @@ UT_001:
 
 UT_002:
   extends: .unit_test_esp32_template
-  parallel: 15
+  parallel: 16
   tags:
     - ESP32_IDF
     - UT_T1_1
@@ -533,7 +550,7 @@ UT_006:
 
 UT_007:
   extends: .unit_test_esp32_template
-  parallel: 7
+  parallel: 8
   tags:
     - ESP32_IDF
     - UT_T1_1
@@ -684,7 +701,7 @@ UT_046:
 
 UT_047:
   extends: .unit_test_esp32s2_template
-  parallel: 7
+  parallel: 8
   tags:
     - ESP32S2_IDF
     - UT_T1_1
@@ -703,7 +720,7 @@ UT_S2_SDSPI:
 
 UT_C3:
   extends: .unit_test_esp32c3_template
-  parallel: 35
+  parallel: 36
   tags:
     - ESP32C3_IDF
     - UT_T1_1
@@ -747,7 +764,7 @@ UT_C3_SDSPI:
 
 UT_S3:
   extends: .unit_test_esp32s3_template
-  parallel: 32
+  parallel: 33
   tags:
     - ESP32S3_IDF
     - UT_T1_1
@@ -776,197 +793,3 @@ component_ut_test_lan8720:
   tags:
     - ESP32
     - COMPONENT_UT_LAN8720
-
-.integration_test_template:
-  extends:
-    - .target_test_job_template
-    - .rules:test:integration_test
-    - .before_script_minimal
-  image: ${CI_INTEGRATION_TEST_ENV_IMAGE}
-  needs: # the assign already needs all the build jobs
-    - assign_integration_test
-  variables:
-    LOCAL_ENV_CONFIG_PATH: "$CI_PROJECT_DIR/ci-test-runner-configs/$CI_RUNNER_DESCRIPTION/ESP32_IDF"
-    LOG_PATH: "${CI_PROJECT_DIR}/TEST_LOGS"
-    TEST_CASE_FILE_PATH: "$CI_PROJECT_DIR/auto_test_script/TestCaseFiles"
-    CONFIG_FILE_PATH: "${CI_PROJECT_DIR}/tools/ci/integration_test/test_configs"
-    KNOWN_ISSUE_FILE: "${CI_PROJECT_DIR}/tools/ci/integration_test/KnownIssues"
-    CI_RUNNER_SCRIPT: "${CI_PROJECT_DIR}/auto_test_script/bin/CIRunner.py"
-    PREPARE_TEST_BIN_SCRIPT: "${CI_PROJECT_DIR}/tools/ci/integration_test/prepare_test_bins.py"
-    PYTHONPATH: "${CI_PROJECT_DIR}/auto_test_script/packages:${CI_PROJECT_DIR}/tools/ci/python_packages:${PYTHONPATH}"
-    INITIAL_CONDITION_RETRY_COUNT: "1"
-    GIT_LFS_SKIP_SMUDGE: 1
-  script:
-    - *define_config_file_name
-    # first test if config file exists, if not exist, exit 0
-    - test -e $CONFIG_FILE || exit 0
-    - add_gitlab_ssh_keys
-    # clone local test env configs
-    - retry_failed git clone $TEST_ENV_CONFIG_REPO
-    - python $CHECKOUT_REF_SCRIPT ci-test-runner-configs ci-test-runner-configs
-    # clone test bench
-    - retry_failed git clone ${CI_AUTO_TEST_SCRIPT_REPO_URL} auto_test_script
-    - python $CHECKOUT_REF_SCRIPT auto_test_script auto_test_script
-    - cd auto_test_script
-    - ./tools/ci/setup_idfci.sh
-    # Merge known issues
-    - cat ${KNOWN_ISSUE_FILE} >> ${TEST_CASE_FILE_PATH}/KnownIssues
-    # run test
-    - python ${PREPARE_TEST_BIN_SCRIPT} $CONFIG_FILE
-    - python ${CI_RUNNER_SCRIPT} -l "$LOG_PATH/$JOB_FULL_NAME" -c $CONFIG_FILE -e $LOCAL_ENV_CONFIG_PATH -t $TEST_CASE_FILE_PATH
-
-.integration_test_esp32c3_template:
-  extends:
-    - .integration_test_template
-  variables:
-    LOCAL_ENV_CONFIG_PATH: "$CI_PROJECT_DIR/ci-test-runner-configs/$CI_RUNNER_DESCRIPTION/ESP32C3_IDF"
-
-nvs_compatible_test:
-  extends: .integration_test_template
-  artifacts:
-    when: always
-    paths:
-      - $LOG_PATH
-      - nvs_wifi.bin
-    expire_in: 1 mos
-  tags:
-    - ESP32_IDF
-    - NVS_Compatible
-  script:
-    - *define_config_file_name
-    # first test if config file exists, if not exist, exit 0
-    - test -e $CONFIG_FILE || exit 0
-    - add_gitlab_ssh_keys
-    # clone local test env configs
-    - retry_failed git clone $TEST_ENV_CONFIG_REPO
-    - python $CHECKOUT_REF_SCRIPT ci-test-runner-configs ci-test-runner-configs
-    # clone test bench
-    - retry_failed git clone ${CI_AUTO_TEST_SCRIPT_REPO_URL} auto_test_script
-    - python $CHECKOUT_REF_SCRIPT auto_test_script auto_test_script
-    - cd auto_test_script
-    - ./tools/ci/setup_idfci.sh
-    # prepare nvs bins
-    - ./tools/prepare_nvs_bin.sh
-    # run test
-    - python ${PREPARE_TEST_BIN_SCRIPT} $CONFIG_FILE
-    - python ${CI_RUNNER_SCRIPT} -l "$LOG_PATH/$JOB_FULL_NAME" -c $CONFIG_FILE -e $LOCAL_ENV_CONFIG_PATH -t $TEST_CASE_FILE_PATH
-
-IT_001:
-  extends: .integration_test_template
-  parallel: 2
-  tags:
-    - ESP32_IDF
-    - SSC_T1_4
-
-IT_002:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T1_2
-
-IT_003:
-  extends: .integration_test_template
-  parallel: 9
-  tags:
-    - ESP32_IDF
-    - SSC_T2_5
-
-IT_005:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T1_5
-
-IT_006:
-  extends: .integration_test_template
-  parallel: 5
-  tags:
-    - ESP32_IDF
-    - SSC_T1_6
-
-IT_007:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T1_7
-
-IT_008:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T1_8
-
-IT_011:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T1_MESH1
-
-IT_012:
-  extends: .integration_test_template
-  parallel: 2
-  tags:
-    - ESP32_IDF
-    - SSC_T2_MESH1
-
-IT_013:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T3_MESH1
-
-IT_014:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T6_MESH1
-
-IT_015:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T12_MESH1
-
-IT_016:
-  extends: .integration_test_template
-  allow_failure: true
-  tags:
-    - ESP32_IDF
-    - SSC_T50_MESH1
-
-IT_017:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T1_MESH2
-
-IT_018:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T1_9
-
-IT_019:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T2_2
-
-IT_020:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T2_3
-
-IT_022:
-  extends: .integration_test_template
-  tags:
-    - ESP32_IDF
-    - SSC_T3_2
-
-IT_C3_001:
-  extends: .integration_test_esp32c3_template
-  parallel: 6
-  tags:
-    - ESP32C3_IDF
-    - SSC_T2_5

@@ -23,6 +23,7 @@
 #include "soc/extmem_reg.h"
 #include "soc/io_mux_reg.h"
 #include "soc/system_reg.h"
+#include "soc/chip_revision.h"
 #include "esp32c3/rom/efuse.h"
 #include "esp32c3/rom/spi_flash.h"
 #include "esp32c3/rom/cache.h"
@@ -259,7 +260,7 @@ static inline void bootloader_hardware_init(void)
 {
     // This check is always included in the bootloader so it can
     // print the minimum revision error message later in the boot
-    if (efuse_hal_get_minor_chip_version() < 3) {
+    if (!ESP_CHIP_REV_ABOVE(efuse_hal_chip_revision(), 3)) {
         REGI2C_WRITE_MASK(I2C_ULP, I2C_ULP_IR_FORCE_XPD_IPH, 1);
         REGI2C_WRITE_MASK(I2C_BIAS, I2C_BIAS_DREG_1P1_PVT, 12);
     }
@@ -267,30 +268,29 @@ static inline void bootloader_hardware_init(void)
 
 static inline void bootloader_ana_reset_config(void)
 {
+    //Enable super WDT reset.
+    bootloader_ana_super_wdt_reset_config(true);
+
     /*
-      For origin chip & ECO1: only support swt reset;
-      For ECO2: fix brownout reset bug, support swt & brownout reset;
-      For ECO3: fix clock glitch reset bug, support all reset, include: swt & brownout & clock glitch reset.
+      For origin chip & ECO1: brownout & clock glitch reset not available
+      For ECO2: fix brownout reset bug
+      For ECO3: fix clock glitch reset bug
     */
-    uint8_t chip_version = efuse_hal_get_minor_chip_version();
-    switch (chip_version) {
+    switch (efuse_hal_chip_revision()) {
         case 0:
         case 1:
-            //Enable WDT reset. Disable BOR and GLITCH reset
-            bootloader_ana_super_wdt_reset_config(true);
+            //Disable BOD and GLITCH reset
             bootloader_ana_bod_reset_config(false);
             bootloader_ana_clock_glitch_reset_config(false);
             break;
         case 2:
-            //Enable WDT and BOR reset. Disable GLITCH reset
-            bootloader_ana_super_wdt_reset_config(true);
+            //Enable BOD reset. Disable GLITCH reset
             bootloader_ana_bod_reset_config(true);
             bootloader_ana_clock_glitch_reset_config(false);
             break;
         case 3:
         default:
-            //Enable WDT, BOR, and GLITCH reset
-            bootloader_ana_super_wdt_reset_config(true);
+            //Enable BOD, and GLITCH reset
             bootloader_ana_bod_reset_config(true);
             bootloader_ana_clock_glitch_reset_config(true);
             break;

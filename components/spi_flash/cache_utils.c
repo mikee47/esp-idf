@@ -63,9 +63,6 @@ static __attribute__((unused)) const char *TAG = "cache";
 #define DPORT_CACHE_GET_VAL(cpuid) (cpuid == 0) ? DPORT_CACHE_VAL(PRO) : DPORT_CACHE_VAL(APP)
 #define DPORT_CACHE_GET_MASK(cpuid) (cpuid == 0) ? DPORT_CACHE_MASK(PRO) : DPORT_CACHE_MASK(APP)
 
-static void IRAM_ATTR spi_flash_disable_cache(uint32_t cpuid, uint32_t *saved_state);
-static void IRAM_ATTR spi_flash_restore_cache(uint32_t cpuid, uint32_t saved_state);
-
 static uint32_t s_flash_op_cache_state[2];
 
 #ifndef CONFIG_FREERTOS_UNICORE
@@ -300,7 +297,7 @@ void IRAM_ATTR spi_flash_enable_interrupts_caches_no_os(void)
  * function in ROM. They are used to work around a bug where Cache_Read_Disable requires a call to
  * Cache_Flush before Cache_Read_Enable, even if cached data was not modified.
  */
-static void IRAM_ATTR spi_flash_disable_cache(uint32_t cpuid, uint32_t *saved_state)
+void IRAM_ATTR spi_flash_disable_cache(uint32_t cpuid, uint32_t *saved_state)
 {
 #if CONFIG_IDF_TARGET_ESP32
     uint32_t ret = 0;
@@ -336,7 +333,7 @@ static void IRAM_ATTR spi_flash_disable_cache(uint32_t cpuid, uint32_t *saved_st
 #endif
 }
 
-static void IRAM_ATTR spi_flash_restore_cache(uint32_t cpuid, uint32_t saved_state)
+void IRAM_ATTR spi_flash_restore_cache(uint32_t cpuid, uint32_t saved_state)
 {
 #if CONFIG_IDF_TARGET_ESP32
     const uint32_t cache_mask = DPORT_CACHE_GET_MASK(cpuid);
@@ -762,11 +759,11 @@ esp_err_t esp_enable_cache_wrap(bool icache_wrap_enable, bool dcache_wrap_enable
     uint32_t instruction_use_spiram = 0;
     uint32_t rodata_use_spiram = 0;
 #if CONFIG_SPIRAM_FETCH_INSTRUCTIONS
-    extern uint32_t esp_spiram_instruction_access_enabled();
+    extern uint32_t esp_spiram_instruction_access_enabled(void);
     instruction_use_spiram = esp_spiram_instruction_access_enabled();
 #endif
 #if CONFIG_SPIRAM_RODATA
-    extern uint32_t esp_spiram_rodata_access_enabled();
+    extern uint32_t esp_spiram_rodata_access_enabled(void);
     rodata_use_spiram = esp_spiram_rodata_access_enabled();
 #endif
 
@@ -941,3 +938,24 @@ void IRAM_ATTR spi_flash_enable_cache(uint32_t cpuid)
     spi_flash_restore_cache(0, 0); // TODO cache_value should be non-zero
 #endif
 }
+
+#if CONFIG_IDF_TARGET_ESP32S3
+/*protect cache opreation*/
+static spinlock_t cache_op_lock = SPINLOCK_INITIALIZER;
+
+IRAM_ATTR void esp_cache_op_lock(void)
+{
+    portENTER_CRITICAL_SAFE(&cache_op_lock);
+}
+
+IRAM_ATTR void esp_cache_op_unlock(void)
+{
+    portEXIT_CRITICAL_SAFE(&cache_op_lock);
+}
+
+IRAM_ATTR void esp_cache_op_lock_init(void)
+{
+    rom_cache_op_cb.start = esp_cache_op_lock;
+    rom_cache_op_cb.end = esp_cache_op_unlock;
+}
+#endif// CONFIG_IDF_TARGET_ESP32S3

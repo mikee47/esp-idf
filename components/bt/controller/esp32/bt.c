@@ -88,7 +88,7 @@ do{\
 } while(0)
 
 #define OSI_FUNCS_TIME_BLOCKING  0xffffffff
-#define OSI_VERSION              0x00010003
+#define OSI_VERSION              0x00010004
 #define OSI_MAGIC_VALUE          0xFADEBEAD
 
 /* Types definition
@@ -175,6 +175,7 @@ struct osi_funcs_t {
     void (*_interrupt_l3_disable)(void);
     void (*_interrupt_l3_restore)(void);
     void *(* _customer_queue_create)(uint32_t queue_len, uint32_t item_size);
+    int (* _coex_version_get)(unsigned int *major, unsigned int *minor, unsigned int *patch);
     uint32_t _magic;
 };
 
@@ -233,6 +234,8 @@ extern int coex_wifi_channel_get(uint8_t *primary, uint8_t *secondary);
 extern int coex_register_wifi_channel_change_callback(void *cb);
 /* Shutdown */
 extern void esp_bt_controller_shutdown(void);
+extern void sdk_config_set_bt_pll_track_enable(bool enable);
+extern void sdk_config_set_uart_flow_ctrl_enable(bool enable);
 
 extern char _bss_start_btdm;
 extern char _bss_end_btdm;
@@ -319,11 +322,13 @@ static uint8_t coex_schm_curr_period_get_wrapper(void);
 static void * coex_schm_curr_phase_get_wrapper(void);
 static int coex_wifi_channel_get_wrapper(uint8_t *primary, uint8_t *secondary);
 static int coex_register_wifi_channel_change_callback_wrapper(void *cb);
+static int coex_version_get_wrapper(unsigned int *major, unsigned int *minor, unsigned int *patch);
 #if CONFIG_BTDM_CTRL_HLI
 static void *customer_queue_create_hlevel_wrapper(uint32_t queue_len, uint32_t item_size);
 #endif /* CONFIG_BTDM_CTRL_HLI */
 static void IRAM_ATTR interrupt_l3_disable(void);
 static void IRAM_ATTR interrupt_l3_restore(void);
+static void bt_controller_deinit_internal(void);
 
 /* Local variable definition
  ***************************************************************************
@@ -410,6 +415,7 @@ static const struct osi_funcs_t osi_funcs_ro = {
 #else
     ._customer_queue_create = NULL,
 #endif /* CONFIG_BTDM_CTRL_HLI */
+    ._coex_version_get = coex_version_get_wrapper,
     ._magic = OSI_MAGIC_VALUE,
 };
 
@@ -904,7 +910,11 @@ static void *malloc_internal_wrapper(size_t size)
 
 static int32_t IRAM_ATTR read_mac_wrapper(uint8_t mac[6])
 {
-    return esp_read_mac(mac, ESP_MAC_BT);
+    int ret = esp_read_mac(mac, ESP_MAC_BT);
+    ESP_LOGI(BTDM_LOG_TAG, "Bluetooth MAC: %02x:%02x:%02x:%02x:%02x:%02x",
+               mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    return ret;
 }
 
 static void IRAM_ATTR srand_wrapper(unsigned int seed)
@@ -1228,6 +1238,30 @@ static int coex_register_wifi_channel_change_callback_wrapper(void *cb)
 #endif
 }
 
+static int coex_version_get_wrapper(unsigned int *major, unsigned int *minor, unsigned int *patch)
+{
+#if CONFIG_SW_COEXIST_ENABLE
+    const char *ver_str = esp_coex_version_get();
+    if (ver_str != NULL) {
+        unsigned int _major = 0, _minor = 0, _patch = 0;
+        if (sscanf(ver_str, "%u.%u.%u", &_major, &_minor, &_patch) != 3) {
+            return -1;
+        }
+        if (major != NULL) {
+            *major = _major;
+        }
+        if (minor != NULL) {
+            *minor = _minor;
+        }
+        if (patch != NULL) {
+            *patch = _patch;
+        }
+        return 0;
+    }
+#endif
+    return -1;
+}
+
 bool esp_vhci_host_check_send_available(void)
 {
     return API_vhci_host_check_send_available();
@@ -1538,6 +1572,12 @@ esp_err_t esp_bt_controller_init(esp_bt_controller_config_t *cfg)
     btdm_controller_set_sleep_mode(BTDM_MODEM_SLEEP_MODE_NONE);
 #endif
 
+#if CONFIG_BTDM_CTRL_HCI_UART_FLOW_CTRL_EN
+    sdk_config_set_uart_flow_ctrl_enable(true);
+#else
+    sdk_config_set_uart_flow_ctrl_enable(false);
+#endif
+
 #ifdef CONFIG_PM_ENABLE
     if (!s_btdm_allow_light_sleep) {
         if ((err = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "btLS", &s_light_sleep_pm_lock)) != ESP_OK) {
@@ -1575,26 +1615,9 @@ esp_err_t esp_bt_controller_init(esp_bt_controller_config_t *cfg)
     return ESP_OK;
 
 error:
-#ifdef CONFIG_PM_ENABLE
-    if (!s_btdm_allow_light_sleep) {
-        if (s_light_sleep_pm_lock != NULL) {
-            esp_pm_lock_delete(s_light_sleep_pm_lock);
-            s_light_sleep_pm_lock = NULL;
-        }
-    }
-    if (s_pm_lock != NULL) {
-        esp_pm_lock_delete(s_pm_lock);
-        s_pm_lock = NULL;
-    }
-    if (s_btdm_slp_tmr != NULL) {
-        esp_timer_delete(s_btdm_slp_tmr);
-        s_btdm_slp_tmr = NULL;
-    }
-#endif
-    if (s_wakeup_req_sem) {
-        semphr_delete_wrapper(s_wakeup_req_sem);
-        s_wakeup_req_sem = NULL;
-    }
+
+    bt_controller_deinit_internal();
+
     return err;
 }
 
@@ -1606,6 +1629,13 @@ esp_err_t esp_bt_controller_deinit(void)
 
     btdm_controller_deinit();
 
+    bt_controller_deinit_internal();
+
+    return ESP_OK;
+}
+
+static void bt_controller_deinit_internal(void)
+{
     periph_module_disable(PERIPH_BT_MODULE);
 
 #ifdef CONFIG_PM_ENABLE
@@ -1627,11 +1657,16 @@ esp_err_t esp_bt_controller_deinit(void)
 
     s_pm_lock_acquired = false;
 #endif
-    semphr_delete_wrapper(s_wakeup_req_sem);
-    s_wakeup_req_sem = NULL;
 
-    free(osi_funcs_p);
-    osi_funcs_p = NULL;
+    if (s_wakeup_req_sem) {
+        semphr_delete_wrapper(s_wakeup_req_sem);
+        s_wakeup_req_sem = NULL;
+    }
+
+    if (osi_funcs_p) {
+        free(osi_funcs_p);
+        osi_funcs_p = NULL;
+    }
 
     btdm_controller_status = ESP_BT_CONTROLLER_STATUS_IDLE;
 
@@ -1641,8 +1676,6 @@ esp_err_t esp_bt_controller_deinit(void)
     esp_bt_power_domain_off();
 
     esp_phy_modem_deinit();
-
-    return ESP_OK;
 }
 
 static void bt_controller_shutdown(void* arg)
@@ -1695,6 +1728,8 @@ esp_err_t esp_bt_controller_enable(esp_bt_mode_t mode)
     if (btdm_controller_get_sleep_mode() == BTDM_MODEM_SLEEP_MODE_ORIG) {
         btdm_controller_enable_sleep(true);
     }
+
+    sdk_config_set_bt_pll_track_enable(true);
 
     // inititalize bluetooth baseband
     btdm_check_and_init_bb();

@@ -62,7 +62,7 @@ Attenuation            Measurable input voltage range
 ``ADC_ATTEN_DB_0``     {IDF_TARGET_ADC_V_MIN_ATTEN0} mV ~ {IDF_TARGET_ADC_V_MAX_ATTEN0} mV
 ``ADC_ATTEN_DB_2_5``   {IDF_TARGET_ADC_V_MIN_ATTEN1} mV ~ {IDF_TARGET_ADC_V_MAX_ATTEN1} mV
 ``ADC_ATTEN_DB_6``     {IDF_TARGET_ADC_V_MIN_ATTEN2} mV ~ {IDF_TARGET_ADC_V_MAX_ATTEN2} mV
-``ADC_ATTEN_DB_11``    {IDF_TARGET_ADC_V_MIN_ATTEN3} mV ~ {IDF_TARGET_ADC_V_MAX_ATTEN3} mV
+``ADC_ATTEN_DB_12``    {IDF_TARGET_ADC_V_MIN_ATTEN3} mV ~ {IDF_TARGET_ADC_V_MAX_ATTEN3} mV
 =====================  =========================================================================================================
 
 
@@ -126,8 +126,17 @@ ADC Limitations
     .. only:: esp32c3
 
         - A specific ADC module can only work under one operating mode at any one time, either Continuous Read Mode or Single Read Mode.
-        - ADC1 and ADC2 can not work under Singel Read Mode simultaneously. One of them will get blocked until another one finishes.
         - For continuous (DMA) read mode, the ADC sampling frequency (the ``sample_freq_hz`` member of :cpp:type:`adc_digi_config_t`) should be within ``SOC_ADC_SAMPLE_FREQ_THRES_LOW`` and ``SOC_ADC_SAMPLE_FREQ_THRES_HIGH``.
+
+    .. only:: esp32c3
+
+        - ADC2 oneshot mode is no longer supported, due to hardware limitation. The results are not stable. This issue can be found in `ESP32C3 Errata <https://www.espressif.com/sites/default/files/documentation/esp32-c3_errata_en.pdf>`. For compatibility, you can enable :ref:`CONFIG_ADC_ONESHOT_FORCE_USE_ADC2_ON_C3` to force use ADC2.
+
+       - ADC2 continuous (DMA) mode is no longer supported, due to hardware limitation. The results are not stable. This issue can be found in `ESP32C3 Errata <https://www.espressif.com/sites/default/files/documentation/esp32-c3_errata_en.pdf>`. For compatibility, you can enable :ref:`CONFIG_ADC_CONTINUOUS_FORCE_USE_ADC2_ON_C3_S3` to force use ADC2.
+
+    .. only:: esp32s3
+
+        - ADC2 continuous mode is no longer supported, due to hardware limitation. The results are not stable. This issue can be found in `ESP32S3 Errata <https://www.espressif.com/sites/default/files/documentation/esp32-s3_errata_en.pdf>`. For compatibility, you can enable :ref:`CONFIG_ADC_CONTINUOUS_FORCE_USE_ADC2_ON_C3_S3` to force use ADC2.
 
 Driver Usage
 ------------

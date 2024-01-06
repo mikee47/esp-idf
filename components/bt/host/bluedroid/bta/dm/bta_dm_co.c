@@ -51,7 +51,6 @@ tBTE_APPL_CFG bte_appl_cfg = {
     BTM_BLE_MIN_KEY_SIZE,
     BTM_BLE_ONLY_ACCEPT_SPECIFIED_SEC_AUTH_DISABLE,
     BTM_BLE_OOB_DISABLE,
-    BTM_BLE_APPL_ENC_KEY_SIZE,
 };
 #endif
 
@@ -350,10 +349,6 @@ void bta_dm_co_ble_io_req(BD_ADDR bd_addr,  tBTA_IO_CAP *p_io_cap,
 
     *p_auth_req = bte_appl_cfg.ble_auth_req | (bte_appl_cfg.ble_auth_req & BTA_LE_AUTH_REQ_MITM) | ((*p_auth_req) & BTA_LE_AUTH_REQ_MITM);
 
-    if (*p_oob_data == BTM_BLE_OOB_ENABLE) {
-        *p_auth_req = (*p_auth_req)&(~BTA_LE_AUTH_REQ_SC_ONLY);
-    }
-
     if (bte_appl_cfg.ble_io_cap <= 4) {
         *p_io_cap = bte_appl_cfg.ble_io_cap;
     }
@@ -366,7 +361,7 @@ void bta_dm_co_ble_io_req(BD_ADDR bd_addr,  tBTA_IO_CAP *p_io_cap,
         *p_resp_key = bte_appl_cfg.ble_resp_key;
     }
 
-    if (bte_appl_cfg.ble_max_key_size > 7 && bte_appl_cfg.ble_max_key_size <= 16) {
+    if (bte_appl_cfg.ble_max_key_size >= 7 && bte_appl_cfg.ble_max_key_size <= 16) {
         *p_max_key_size = bte_appl_cfg.ble_max_key_size;
     }
 #endif  ///SMP_INCLUDED == TRUE
@@ -394,7 +389,7 @@ void bta_dm_co_ble_set_init_key_req(UINT8 init_key)
 {
 #if (SMP_INCLUDED == TRUE)
    init_key &= 0x0f;  // 4~7bit reservd, only used the 0~3bit
-   bte_appl_cfg.ble_init_key &= init_key;
+   bte_appl_cfg.ble_init_key = init_key;
 #endif  ///SMP_INCLUDED == TRUE
 }
 
@@ -402,7 +397,7 @@ void bta_dm_co_ble_set_rsp_key_req(UINT8 rsp_key)
 {
 #if (SMP_INCLUDED == TRUE)
    rsp_key &= 0x0f;  // 4~7bit reservd, only used the 0~3bit
-   bte_appl_cfg.ble_resp_key &= rsp_key;
+   bte_appl_cfg.ble_resp_key = rsp_key;
 #endif  ///SMP_INCLUDED == TRUE
 }
 
@@ -422,17 +417,6 @@ void bta_dm_co_ble_set_min_key_size(UINT8 ble_key_size)
 #if (SMP_INCLUDED == TRUE)
     if(ble_key_size >= BTM_BLE_MIN_KEY_SIZE && ble_key_size <= bte_appl_cfg.ble_max_key_size) {
         bte_appl_cfg.ble_min_key_size = ble_key_size;
-    } else {
-        APPL_TRACE_ERROR("%s error:Invalid key size value, key_size =%d",__func__, ble_key_size);
-    }
-#endif  ///SMP_INCLUDED == TRUE
-}
-
-void bta_dm_co_ble_set_appl_enc_key_size(UINT8 ble_key_size)
-{
-#if (SMP_INCLUDED == TRUE)
-    if(ble_key_size >= bte_appl_cfg.ble_min_key_size && ble_key_size <= bte_appl_cfg.ble_max_key_size) {
-        bte_appl_cfg.ble_appl_enc_key_size = ble_key_size;
     } else {
         APPL_TRACE_ERROR("%s error:Invalid key size value, key_size =%d",__func__, ble_key_size);
     }

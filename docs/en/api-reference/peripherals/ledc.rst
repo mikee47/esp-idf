@@ -96,7 +96,13 @@ To set the duty cycle, use the dedicated function :cpp:func:`ledc_set_duty`. Aft
 
 Another way to set the duty cycle, as well as some other channel parameters, is by calling :cpp:func:`ledc_channel_config` covered in Section :ref:`ledc-api-configure-channel`.
 
-The range of the duty cycle values passed to functions depends on selected ``duty_resolution`` and should be from ``0`` to ``(2 ** duty_resolution) - 1``. For example, if the selected duty resolution is 10, then the duty cycle values can range from 0 to 1023. This provides the resolution of ~0.1%.
+The range of the duty cycle values passed to functions depends on selected ``duty_resolution`` and should be from ``0`` to ``(2 ** duty_resolution)``. For example, if the selected duty resolution is 10, then the duty cycle values can range from 0 to 1024. This provides the resolution of ~ 0.1%.
+
+.. only:: esp32 or esp32s2 or esp32s3 or esp32c3
+
+    .. warning::
+
+        On {IDF_TARGET_NAME}, when channel's binded timer selects its maximum duty resolution, the duty cycle value cannot be set to ``(2 ** duty_resolution)``. Otherwise, the internal duty counter in the hardware will overflow and be messed up.
 
 
 Change PWM Duty Cycle using Hardware
@@ -110,7 +116,7 @@ The LEDC hardware provides the means to gradually transition from one duty cycle
 
 Start fading with :cpp:func:`ledc_fade_start`. A fade can be operated in blocking or non-blocking mode, please check :cpp:enum:`ledc_fade_mode_t` for the difference between the two available fade modes. Note that with either fade mode, the next fade or fixed-duty update will not take effect until the last fade finishes.
 
-To get a notification about the completion of a fade operation, a fade end callback function can be registered for each channel by calling :cpp:func:`ledc_cb_register` after the fade service being installed. The fade end callback prototype is defined in :cpp:type:`ledc_cb_t`, where you should return a boolean value from the callback function, indicating whether a high priority task is woken up by this callback function.
+To get a notification about the completion of a fade operation, a fade end callback function can be registered for each channel by calling :cpp:func:`ledc_cb_register` after the fade service being installed. The fade end callback prototype is defined in :cpp:type:`ledc_cb_t`, where you should return a boolean value from the callback function, indicating whether a high priority task is woken up by this callback function. It is worth mentioning, the callback and the function invoked by itself should be placed in IRAM, as the interrupt service routine is in IRAM. :cpp:func:`ledc_cb_register` will print a warning message if it finds the addresses of callback and user context are incorrect.
 
 If not required anymore, fading and an associated interrupt can be disabled with :cpp:func:`ledc_fade_func_uninstall`.
 

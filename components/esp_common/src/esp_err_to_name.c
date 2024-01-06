@@ -380,6 +380,12 @@ static const esp_err_msg_t esp_err_msg_table[] = {
 #   ifdef      ESP_ERR_WIFI_TX_DISALLOW
     ERR_TBL_IT(ESP_ERR_WIFI_TX_DISALLOW),                       /* 12310 0x3016 The WiFi TX is disallowed */
 #   endif
+#   ifdef      ESP_ERR_WIFI_DISCARD
+    ERR_TBL_IT(ESP_ERR_WIFI_DISCARD),                           /* 12311 0x3017 Discard frame */
+#   endif
+#   ifdef      ESP_ERR_WIFI_ROC_IN_PROGRESS
+    ERR_TBL_IT(ESP_ERR_WIFI_ROC_IN_PROGRESS),                   /* 12316 0x301c ROC op is in progress */
+#   endif
     // components/wpa_supplicant/esp_supplicant/include/esp_wps.h
 #   ifdef      ESP_ERR_WIFI_REGISTRAR
     ERR_TBL_IT(ESP_ERR_WIFI_REGISTRAR),                         /* 12339 0x3033 WPS registrar is not supported */
@@ -550,6 +556,9 @@ static const esp_err_msg_t esp_err_msg_table[] = {
 #   endif
 #   ifdef      ESP_ERR_ESP_NETIF_IP6_ADDR_FAILED
     ERR_TBL_IT(ESP_ERR_ESP_NETIF_IP6_ADDR_FAILED),              /* 20492 0x500c */
+#   endif
+#   ifdef      ESP_ERR_ESP_NETIF_DHCPS_START_FAILED
+    ERR_TBL_IT(ESP_ERR_ESP_NETIF_DHCPS_START_FAILED),           /* 20493 0x500d */
 #   endif
     // components/esp_common/include/esp_err.h
 #   ifdef      ESP_ERR_FLASH_BASE

@@ -500,6 +500,7 @@ extern BOOLEAN L2CA_DisconnectReq (UINT16 cid);
 extern BOOLEAN L2CA_DisconnectRsp (UINT16 cid);
 #endif  ///CLASSIC_BT_INCLUDED == TRUE
 
+#if (BLE_L2CAP_COC_INCLUDED == TRUE)
 /*******************************************************************************
 **
 ** Function         L2CA_RegisterLECoc
@@ -566,6 +567,8 @@ extern BOOLEAN L2CA_ConnectLECocRsp (BD_ADDR p_bd_addr, UINT8 id, UINT16 lcid, U
 **
 *******************************************************************************/
 extern BOOLEAN L2CA_GetPeerLECocConfig (UINT16 lcid, tL2CAP_LE_CFG_INFO* peer_cfg);
+
+#endif // (BLE_L2CAP_COC_INCLUDED == TRUE)
 
 /*******************************************************************************
 **
@@ -1211,6 +1214,19 @@ extern BOOLEAN L2CA_EnableUpdateBleConnParams (BD_ADDR rem_bda, BOOLEAN enable);
 **
 *******************************************************************************/
 extern UINT8 L2CA_GetBleConnRole (BD_ADDR bd_addr);
+
+/*******************************************************************************
+**
+** Function         L2CA_BleDisconnect
+**
+** Description      This function use to disconnect LE connection.
+**
+** Parameters       BD Address of remote
+**
+** Returns          TRUE if disconnect successfully.
+**
+*******************************************************************************/
+extern BOOLEAN L2CA_BleDisconnect (BD_ADDR rem_bda);
 #endif /* (BLE_INCLUDED == TRUE) */
 
 /*******************************************************************************
@@ -1236,6 +1252,7 @@ extern BOOLEAN L2CA_CheckIsCongest(UINT16 fixed_cid, BD_ADDR addr);
 #define  L2CA_DECREASE_BTU_NUM 4
 #define  L2CA_BUFF_INI         5
 #define  L2CA_BUFF_DEINIT      6
+#define  L2CA_BUFF_FREE        7
 
 typedef struct {
     UINT16 conn_id;

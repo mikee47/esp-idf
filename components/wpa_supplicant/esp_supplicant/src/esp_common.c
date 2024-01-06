@@ -20,6 +20,9 @@
 #include "common/ieee802_11_common.h"
 #include "esp_rrm.h"
 #include "esp_wnm.h"
+#include "rsn_supp/wpa.h"
+#include "esp_private/wifi.h"
+
 
 struct wpa_supplicant g_wpa_supp;
 
@@ -27,9 +30,10 @@ struct wpa_supplicant g_wpa_supp;
 static TaskHandle_t s_supplicant_task_hdl = NULL;
 static void *s_supplicant_evt_queue = NULL;
 static void *s_supplicant_api_lock = NULL;
+static bool s_supplicant_task_init_done;
 
 static int handle_action_frm(u8 *frame, size_t len,
-			     u8 *sender, u32 rssi, u8 channel)
+			     u8 *sender, int8_t rssi, u8 channel)
 {
 	struct ieee_mgmt_frame *frm = os_malloc(sizeof(struct ieee_mgmt_frame) + len);
 
@@ -53,7 +57,7 @@ static int handle_action_frm(u8 *frame, size_t len,
 }
 
 static void handle_rrm_frame(struct wpa_supplicant *wpa_s, u8 *sender,
-			     u8 *payload, size_t len, u32 rssi)
+			     u8 *payload, size_t len, int8_t rssi)
 {
 	if (payload[0] == WLAN_RRM_NEIGHBOR_REPORT_RESPONSE) {
 		/* neighbor report parsing */
@@ -69,7 +73,7 @@ static void handle_rrm_frame(struct wpa_supplicant *wpa_s, u8 *sender,
 	}
 }
 
-static int mgmt_rx_action(u8 *sender, u8 *payload, size_t len, u8 channel, u32 rssi)
+static int mgmt_rx_action(u8 *sender, u8 *payload, size_t len, u8 channel, int8_t rssi)
 {
 	u8 category;
 	u8 bssid[ETH_ALEN];
@@ -135,11 +139,6 @@ static void btm_rrm_task(void *pvParameters)
 	vQueueDelete(s_supplicant_evt_queue);
 	s_supplicant_evt_queue = NULL;
 
-	if (s_supplicant_api_lock) {
-		vSemaphoreDelete(s_supplicant_api_lock);
-		s_supplicant_api_lock = NULL;
-	}
-
 	/* At this point, we completed */
 	vTaskDelete(NULL);
 }
@@ -160,8 +159,10 @@ static void clear_bssid_flag(struct wpa_supplicant *wpa_s)
 	}
 
 	esp_wifi_get_config(WIFI_IF_STA, config);
-	config->sta.bssid_set = 0;
-	esp_wifi_set_config(WIFI_IF_STA, config);
+	if (config->sta.bssid_set) {
+		config->sta.bssid_set = 0;
+		esp_wifi_set_config(WIFI_IF_STA, config);
+	}
 	os_free(config);
 	wpa_printf(MSG_DEBUG, "cleared bssid flag");
 }
@@ -184,53 +185,31 @@ static void register_action_frame(struct wpa_supplicant *wpa_s)
 	esp_wifi_register_mgmt_frame_internal(wpa_s->type, wpa_s->subtype);
 }
 
-static void supplicant_sta_conn_handler(void* arg, esp_event_base_t event_base,
-					int32_t event_id, void* event_data)
-{
-	u8 bssid[ETH_ALEN];
-	u8 *ie;
-	struct wpa_supplicant *wpa_s = &g_wpa_supp;
-	int ret = esp_wifi_get_assoc_bssid_internal(bssid);
-	if (ret < 0) {
-		wpa_printf(MSG_ERROR, "Not able to get connected bssid");
-		return;
-	}
-	struct wpa_bss *bss = wpa_bss_get_bssid(wpa_s, bssid);
-	if (!bss) {
-		wpa_printf(MSG_INFO, "connected bss entry not present in scan cache");
-		return;
-	}
-	wpa_s->current_bss = bss;
-	ie = (u8 *)bss;
-	ie += sizeof(struct wpa_bss);
-	ieee802_11_parse_elems(wpa_s, ie, bss->ie_len);
-	wpa_bss_flush(wpa_s);
-	/* Register for action frames */
-	register_action_frame(wpa_s);
-	/* clear set bssid flag */
-	clear_bssid_flag(wpa_s);
-}
+#endif /* defined(CONFIG_WPA_11KV_SUPPORT) */
 
-static void supplicant_sta_disconn_handler(void* arg, esp_event_base_t event_base,
-					   int32_t event_id, void* event_data)
+void esp_supplicant_unset_all_appie(void)
 {
-	struct wpa_supplicant *wpa_s = &g_wpa_supp;
-
-	wpas_rrm_reset(wpa_s);
-	if (wpa_s->current_bss) {
-		wpa_s->current_bss = NULL;
-	}
+   uint8_t appie;
+   for (appie = WIFI_APPIE_PROBEREQ; appie < WIFI_APPIE_RAM_MAX; appie++) {
+        esp_wifi_unset_appie_internal(appie);
+   }
 }
 
 static int ieee80211_handle_rx_frm(u8 type, u8 *frame, size_t len, u8 *sender,
-				   u32 rssi, u8 channel, u64 current_tsf)
+				   int8_t rssi, u8 channel, u64 current_tsf)
 {
 	int ret = 0;
 
 	switch (type) {
+#if defined(CONFIG_WPA_11KV_SUPPORT)
 	case WLAN_FC_STYPE_BEACON:
 	case WLAN_FC_STYPE_PROBE_RESP:
 		ret = esp_handle_beacon_probe(type, frame, len, sender, rssi, channel, current_tsf);
+		break;
+#endif /* defined(CONFIG_WPA_11KV_SUPPORT) */
+	case WLAN_FC_STYPE_ASSOC_RESP:
+	case WLAN_FC_STYPE_REASSOC_RESP:
+		wpa_sm_notify_assoc(&gWpaSm, sender);
 		break;
 #if defined(CONFIG_WPA_11KV_SUPPORT)
 	case WLAN_FC_STYPE_ACTION:
@@ -245,6 +224,7 @@ static int ieee80211_handle_rx_frm(u8 type, u8 *frame, size_t len, u8 *sender,
 	return ret;
 }
 
+#if defined(CONFIG_WPA_11KV_SUPPORT)
 #ifdef CONFIG_MBO
 static bool bss_profile_match(u8 *sender)
 {
@@ -269,13 +249,17 @@ static bool bss_profile_match(u8 *sender)
 	return true;
 }
 #endif /* CONFIG_MBO */
+#endif /* defined(CONFIG_WPA_11KV_SUPPORT) */
 
 int esp_supplicant_common_init(struct wpa_funcs *wpa_cb)
 {
 	struct wpa_supplicant *wpa_s = &g_wpa_supp;
 	int ret;
 
-	s_supplicant_api_lock = xSemaphoreCreateRecursiveMutex();
+#if defined(CONFIG_WPA_11KV_SUPPORT)
+	if (!s_supplicant_api_lock) {
+		s_supplicant_api_lock = xSemaphoreCreateRecursiveMutex();
+	}
 	if (!s_supplicant_api_lock) {
 		wpa_printf(MSG_ERROR, "%s: failed to create Supplicant API lock", __func__);
 		ret = -1;
@@ -296,19 +280,20 @@ int esp_supplicant_common_init(struct wpa_funcs *wpa_cb)
 		goto err;
 	}
 
+	s_supplicant_task_init_done = true;
 	esp_scan_init(wpa_s);
 	wpas_rrm_reset(wpa_s);
 	wpas_clear_beacon_rep_data(wpa_s);
-	esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED,
-			&supplicant_sta_conn_handler, NULL);
-	esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED,
-			&supplicant_sta_disconn_handler, NULL);
-
+#endif /* defined(CONFIG_WPA_11KV_SUPPORT) */
 	wpa_s->type = 0;
 	wpa_s->subtype = 0;
-	esp_wifi_register_mgmt_frame_internal(wpa_s->type, wpa_s->subtype);
-
+	wpa_s->type |= (1 << WLAN_FC_STYPE_ASSOC_RESP) | (1 << WLAN_FC_STYPE_REASSOC_RESP) | (1 << WLAN_FC_STYPE_AUTH);
+	if (esp_wifi_register_mgmt_frame_internal(wpa_s->type, wpa_s->subtype) != ESP_OK) {
+		ret = -1;
+		goto err;
+	}
 	wpa_cb->wpa_sta_rx_mgmt = ieee80211_handle_rx_frm;
+#if defined(CONFIG_WPA_11KV_SUPPORT)
 	/* Matching is done only for MBO at the moment, this can be extended for other features*/
 #ifdef CONFIG_MBO
 	wpa_cb->wpa_sta_profile_match = bss_profile_match;
@@ -316,7 +301,7 @@ int esp_supplicant_common_init(struct wpa_funcs *wpa_cb)
 #else
 	wpa_cb->wpa_sta_profile_match = NULL;
 #endif
-
+#endif /* defined(CONFIG_WPA_11KV_SUPPORT) */
 	return 0;
 err:
 	esp_supplicant_common_deinit();
@@ -327,32 +312,69 @@ void esp_supplicant_common_deinit(void)
 {
 	struct wpa_supplicant *wpa_s = &g_wpa_supp;
 
+#if defined(CONFIG_WPA_11KV_SUPPORT)
 	esp_scan_deinit(wpa_s);
 	wpas_rrm_reset(wpa_s);
 	wpas_clear_beacon_rep_data(wpa_s);
-
-	esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED,
-			&supplicant_sta_conn_handler);
-	esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED,
-			&supplicant_sta_disconn_handler);
+#endif /* defined(CONFIG_WPA_11KV_SUPPORT) */
 	if (wpa_s->type) {
 		wpa_s->type = 0;
 		esp_wifi_register_mgmt_frame_internal(wpa_s->type, wpa_s->subtype);
 	}
-	if (!s_supplicant_task_hdl && esp_supplicant_post_evt(SIG_SUPPLICANT_DEL_TASK, 0) != 0) {
+#if defined(CONFIG_WPA_11KV_SUPPORT)
+	if (!s_supplicant_task_hdl) {
+	/*We have failed to create a task, delete queue and exit*/
 		if (s_supplicant_evt_queue) {
 			vQueueDelete(s_supplicant_evt_queue);
 			s_supplicant_evt_queue = NULL;
 		}
-		if (s_supplicant_api_lock) {
-			vSemaphoreDelete(s_supplicant_api_lock);
-			s_supplicant_api_lock = NULL;
+	}else if (esp_supplicant_post_evt(SIG_SUPPLICANT_DEL_TASK, 0) != 0) {
+	/*Failed to post delete event, just delete the event queue and exit*/
+		if (s_supplicant_evt_queue) {
+			vQueueDelete(s_supplicant_evt_queue);
+			s_supplicant_evt_queue = NULL;
 		}
 		wpa_printf(MSG_ERROR, "failed to send task delete event");
 	}
-
+	s_supplicant_task_init_done = false;
+#endif /* defined(CONFIG_WPA_11KV_SUPPORT) */
 }
 
+void supplicant_sta_conn_handler(uint8_t *bssid)
+{
+#if defined(CONFIG_WPA_11KV_SUPPORT)
+	u8 *ie;
+	struct wpa_supplicant *wpa_s = &g_wpa_supp;
+	struct wpa_bss *bss = wpa_bss_get_bssid(wpa_s, bssid);
+	if (!bss) {
+		wpa_printf(MSG_INFO, "connected bss entry not present in scan cache");
+		return;
+	}
+	wpa_s->current_bss = bss;
+	ie = (u8 *)bss;
+	ie += sizeof(struct wpa_bss);
+	ieee802_11_parse_elems(wpa_s, ie, bss->ie_len);
+	wpa_bss_flush(wpa_s);
+	/* Register for action frames */
+	register_action_frame(wpa_s);
+	/* clear set bssid flag */
+	clear_bssid_flag(wpa_s);
+#endif /* defined(CONFIG_WPA_11KV_SUPPORT)*/
+}
+
+void supplicant_sta_disconn_handler(void)
+{
+#if defined(CONFIG_WPA_11KV_SUPPORT)
+	struct wpa_supplicant *wpa_s = &g_wpa_supp;
+
+	wpas_rrm_reset(wpa_s);
+	if (wpa_s->current_bss) {
+		wpa_s->current_bss = NULL;
+	}
+#endif /* defined(CONFIG_WPA_11KV_SUPPORT)  */
+}
+
+#if defined(CONFIG_WPA_11KV_SUPPORT)
 bool esp_rrm_is_rrm_supported_connection(void)
 {
 	struct wpa_supplicant *wpa_s = &g_wpa_supp;
@@ -529,6 +551,7 @@ static uint8_t get_extended_caps_ie(uint8_t *ie, size_t len)
 	uint8_t ext_caps_ie[5] = {0};
 	uint8_t ext_caps_ie_len = 3;
 	uint8_t *pos = ext_caps_ie;
+	wifi_ioctl_config_t cfg = {0};
 
 	if (!esp_wifi_is_btm_enabled_internal(WIFI_IF_STA)) {
 		return 0;
@@ -536,7 +559,12 @@ static uint8_t get_extended_caps_ie(uint8_t *ie, size_t len)
 
 	*pos++ = WLAN_EID_EXT_CAPAB;
 	*pos++ = ext_caps_ie_len;
-	*pos++ = 0;
+	esp_err_t err = esp_wifi_internal_ioctl(WIFI_IOCTL_GET_STA_HT2040_COEX, &cfg);
+	if (err == ESP_OK && cfg.data.ht2040_coex.enable) {
+		*pos++ |= BIT(WLAN_EXT_CAPAB_20_40_COEX);
+	} else {
+		*pos++ = 0;
+    }
 	*pos++ = 0;
 #define CAPAB_BSS_TRANSITION BIT(3)
 	*pos |= CAPAB_BSS_TRANSITION;
@@ -682,16 +710,17 @@ cleanup:
 int esp_supplicant_post_evt(uint32_t evt_id, uint32_t data)
 {
 	supplicant_event_t *evt = os_zalloc(sizeof(supplicant_event_t));
-	if (evt == NULL) {
+	if (!evt) {
+		wpa_printf(MSG_ERROR, "Failed to allocate memory.");
 		return -1;
 	}
 	evt->id = evt_id;
 	evt->data = data;
 
-	/* Make sure lock exists before taking it */
-	if (s_supplicant_api_lock) {
-		SUPPLICANT_API_LOCK();
-	} else {
+	SUPPLICANT_API_LOCK();
+	/*Make sure no event can be sent when deletion event is sent or the task is not initialized*/
+	if (!s_supplicant_task_init_done) {
+		SUPPLICANT_API_UNLOCK();
 		os_free(evt);
 		return -1;
 	}
@@ -700,9 +729,10 @@ int esp_supplicant_post_evt(uint32_t evt_id, uint32_t data)
 		os_free(evt);
 		return -1;
 	}
-	if (evt_id != SIG_SUPPLICANT_DEL_TASK) {
-	    SUPPLICANT_API_UNLOCK();
+	if (evt_id == SIG_SUPPLICANT_DEL_TASK) {
+		s_supplicant_task_init_done = false;
 	}
+	SUPPLICANT_API_UNLOCK();
 	return 0;
 }
 #endif

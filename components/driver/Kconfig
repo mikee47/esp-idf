@@ -19,6 +19,28 @@ menu "Driver configurations"
 
                 For testing, disable this option so that we can measure the output of DAC by internal ADC.
 
+        config ADC_CONTINUOUS_FORCE_USE_ADC2_ON_C3_S3
+            depends on IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32S3
+            bool "Force use ADC2 continumous mode on ESP32S3 or ESP32C3"
+            default n
+            help
+                On ESP32C3 and ESP32S3, ADC2 Digital Controller is not stable. Therefore,
+                ADC2 continuous mode is not suggested on ESP32S3 and ESP32C3
+
+                If you stick to this, you can enable this option to force use ADC2 under above conditions.
+                For more details, you can search for errata on espressif website.
+
+        config ADC_ONESHOT_FORCE_USE_ADC2_ON_C3
+            depends on IDF_TARGET_ESP32C3
+            bool "Force use ADC2 oneshot mode on ESP32C3"
+            default n
+            help
+                On ESP32C3, ADC2 Digital Controller is not stable. Therefore,
+                ADC2 oneshot mode is not suggested on ESP32C3
+
+                If you stick to this, you can enable this option to force use ADC2 under above conditions.
+                For more details, you can search for errata on espressif website.
+
     endmenu  # ADC Configuration
 
     menu "MCPWM configuration"
@@ -142,6 +164,17 @@ menu "Driver configurations"
                 RX FIFO is no longer recoverable. Enabling this option will add a workaround that resets the peripheral
                 on detection of this errata condition. Note that if a frame is being sent on the bus during the reset
                 bus during the reset, the message will be lost.
+
+        config TWAI_ERRATA_FIX_LISTEN_ONLY_DOM
+            bool "Add SW workaround for listen only transmits dominant bit errata"
+            depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C3
+            default n
+            help
+                When in the listen only mode, the TWAI controller must not influence the TWAI bus (i.e., must not send
+                any dominant bits). However, while in listen only mode on the ESP32/ESP32-S2/ESP32-S3/ESP32-C3, the
+                TWAI controller will still transmit dominant bits when it detects an error (i.e., as part of an active
+                error frame). Enabling this option will add a workaround that forces the TWAI controller into an error
+                passive state on initialization, thus preventing any dominant bits from being sent.
 
     endmenu # TWAI Configuration
 

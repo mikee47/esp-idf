@@ -203,6 +203,15 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
         MODLOG_DFLT(INFO, "\n");
         return 0;
 
+    case BLE_GAP_EVENT_NOTIFY_TX:
+        MODLOG_DFLT(INFO, "notify_tx event; conn_handle=%d attr_handle=%d "
+                    "status=%d is_indication=%d",
+                    event->notify_tx.conn_handle,
+                    event->notify_tx.attr_handle,
+                    event->notify_tx.status,
+                    event->notify_tx.indication);
+        return 0;
+
     case BLE_GAP_EVENT_SUBSCRIBE:
         MODLOG_DFLT(INFO, "subscribe event; conn_handle=%d attr_handle=%d "
                     "reason=%d prevn=%d curn=%d previ=%d curi=%d\n",
@@ -353,6 +362,11 @@ app_main(void)
     ble_hs_cfg.sm_io_cap = CONFIG_EXAMPLE_IO_TYPE;
 #ifdef CONFIG_EXAMPLE_BONDING
     ble_hs_cfg.sm_bonding = 1;
+    /* Enable the appropriate bit masks to make sure the keys
+     * that are needed are exchanged
+     */
+    ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC;
+    ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC;
 #endif
 #ifdef CONFIG_EXAMPLE_MITM
     ble_hs_cfg.sm_mitm = 1;
@@ -362,11 +376,11 @@ app_main(void)
 #else
     ble_hs_cfg.sm_sc = 0;
 #endif
-#ifdef CONFIG_EXAMPLE_BONDING
-    ble_hs_cfg.sm_our_key_dist = 1;
-    ble_hs_cfg.sm_their_key_dist = 1;
+#ifdef CONFIG_EXAMPLE_RESOLVE_PEER_ADDR
+    /* Stores the IRK */
+    ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ID;
 #endif
-
 
     rc = gatt_svr_init();
     assert(rc == 0);

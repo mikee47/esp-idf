@@ -26,9 +26,22 @@ if(CONFIG_IDF_TARGET_ARCH_XTENSA)
     list(APPEND sources "patches/esp_rom_longjmp.S")
 endif()
 
+if(target STREQUAL "esp32s2" OR target STREQUAL "esp32s3")
+    list(APPEND sources "patches/esp_rom_cache.c")
+endif()
+
+if(target STREQUAL "esp32s3")
+    list(APPEND sources "patches/esp_rom_cache_writeback_esp32s3.S")
+endif()
+
+if(target STREQUAL "esp32s3" OR target STREQUAL "esp32c3" OR target STREQUAL "esp32h2")
+    list(APPEND sources "patches/esp_rom_mmap.c")
+endif()
+
 idf_component_register(SRCS ${sources}
                        INCLUDE_DIRS ${include_dirs}
-                       PRIV_REQUIRES ${private_required_comp})
+                       PRIV_REQUIRES ${private_required_comp}
+                       LDFRAGMENTS linker.lf)
 
 # Append a target linker script at the target-specific path,
 # only the 'name' part is different for each script
@@ -53,7 +66,7 @@ if(BOOTLOADER_BUILD)
         if(NOT CONFIG_SPI_FLASH_ROM_DRIVER_PATCH)
             rom_linker_script("spiflash")
         endif()
-        if(CONFIG_ESP32_REV_MIN_3)
+        if(CONFIG_ESP32_REV_MIN_FULL EQUAL 300 OR CONFIG_ESP32_REV_MIN_FULL GREATER 300)
             rom_linker_script("eco3")
         endif()
 
@@ -97,7 +110,7 @@ else() # Regular app build
             rom_linker_script("spiflash")
         endif()
 
-        if(CONFIG_ESP32_REV_MIN_3)
+        if(CONFIG_ESP32_REV_MIN_FULL EQUAL 300 OR CONFIG_ESP32_REV_MIN_FULL GREATER 300)
             rom_linker_script("eco3")
         endif()
 
@@ -154,8 +167,12 @@ else() # Regular app build
             rom_linker_script("newlib-time")
         endif()
 
-        if(CONFIG_ESP32C3_REV_MIN_3 OR CONFIG_ESP32C3_REV_MIN_4)
+        if(CONFIG_ESP32C3_REV_MIN_FULL EQUAL 3 OR CONFIG_ESP32C3_REV_MIN_FULL GREATER 3)
             rom_linker_script("eco3")
+        endif()
+
+        if(CONFIG_ESP32C3_REV_MIN_FULL EQUAL 101 OR CONFIG_ESP32C3_REV_MIN_FULL GREATER 101)
+            rom_linker_script("eco7")
         endif()
 
     elseif(target STREQUAL "esp32h2")

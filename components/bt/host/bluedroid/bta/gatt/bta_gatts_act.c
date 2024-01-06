@@ -495,11 +495,11 @@ void bta_gatts_add_char_descr(tBTA_GATTS_SRVC_CB *p_srvc_cb, tBTA_GATTS_DATA *p_
 
 /*******************************************************************************
 **
-** Function         bta_gatts_add_char_descr
+** Function         bta_gatts_set_attr_value
 **
-** Description      action function to add characteristic descriptor.
+** Description      This function is used to set the attribute value.
 **
-** Returns          none.
+** Returns          None.
 **
 *******************************************************************************/
 void bta_gatts_set_attr_value(tBTA_GATTS_SRVC_CB *p_srvc_cb, tBTA_GATTS_DATA *p_msg)
@@ -526,8 +526,23 @@ void bta_gatts_set_attr_value(tBTA_GATTS_SRVC_CB *p_srvc_cb, tBTA_GATTS_DATA *p_
     }
 }
 
+/*******************************************************************************
+**
+** Function         bta_gatts_get_attr_value
+**
+** Description      This function retrieves the attribute value associated with
+**                  the given attribute handle.
+**
+** Returns          tGATT_STATUS - GATT status indicating success or failure in
+**                  retrieving the attribute value.
+**
+*******************************************************************************/
+
 tGATT_STATUS bta_gatts_get_attr_value(UINT16 attr_handle, UINT16 *length, UINT8 **value)
 {
+    if (GATTS_GetAttributeValueInternal(attr_handle, length, value) == 0) {
+        return 0;
+    }
 
    return GATTS_GetAttributeValue(attr_handle, length, value);
 }
@@ -908,6 +923,22 @@ void bta_gatts_listen(tBTA_GATTS_CB *p_cb, tBTA_GATTS_DATA *p_msg)
 
 /*******************************************************************************
 **
+** Function         bta_gatts_show_local_database
+**
+** Description      print loacl service database
+**
+** Returns          none.
+**
+*******************************************************************************/
+void bta_gatts_show_local_database (void)
+{
+    if (GATTS_ShowLocalDatabase()) {
+        APPL_TRACE_ERROR("%s failed", __func__);
+    }
+}
+
+/*******************************************************************************
+**
 ** Function         bta_gatts_request_cback
 **
 ** Description      GATTS attribute request callback.
@@ -1003,6 +1034,10 @@ static void bta_gatts_conn_cback (tGATT_IF gatt_if, BD_ADDR bda, UINT16 conn_id,
                 cb_data.conn.conn_params.interval = p_lcb->current_used_conn_interval;
                 cb_data.conn.conn_params.latency = p_lcb->current_used_conn_latency;
                 cb_data.conn.conn_params.timeout = p_lcb->current_used_conn_timeout;
+                #if (BLE_INCLUDED == TRUE)
+                cb_data.conn.ble_addr_type = p_lcb->ble_addr_type;
+                #endif
+                cb_data.conn.conn_handle = p_lcb->handle;
             }else {
                 APPL_TRACE_WARNING("%s not found connection parameters of the device ", __func__);
             }

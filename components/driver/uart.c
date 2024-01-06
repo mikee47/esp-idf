@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -59,11 +59,20 @@ static const char *UART_TAG = "uart";
 #define UART_PATTERN_DET_QLEN_DEFAULT   (10)
 #define UART_MIN_WAKEUP_THRESH          (UART_LL_MIN_WAKEUP_THRESH)
 
+#if SOC_UART_SUPPORT_WAKEUP_INT
+#define UART_INTR_CONFIG_FLAG ((UART_INTR_RXFIFO_FULL) \
+                            | (UART_INTR_RXFIFO_TOUT) \
+                            | (UART_INTR_RXFIFO_OVF) \
+                            | (UART_INTR_BRK_DET) \
+                            | (UART_INTR_PARITY_ERR)) \
+                            | (UART_INTR_WAKEUP)
+#else
 #define UART_INTR_CONFIG_FLAG ((UART_INTR_RXFIFO_FULL) \
                             | (UART_INTR_RXFIFO_TOUT) \
                             | (UART_INTR_RXFIFO_OVF) \
                             | (UART_INTR_BRK_DET) \
                             | (UART_INTR_PARITY_ERR))
+#endif
 
 
 #define UART_ENTER_CRITICAL_SAFE(mux)   portENTER_CRITICAL_SAFE(mux)
@@ -113,9 +122,6 @@ typedef struct {
     int rx_buffered_len;                /*!< UART cached data length */
     int rx_buf_size;                    /*!< RX ring buffer size */
     bool rx_buffer_full_flg;            /*!< RX ring buffer full flag. */
-    uint32_t rx_cur_remain;             /*!< Data number that waiting to be read out in ring buffer item*/
-    uint8_t *rx_ptr;                    /*!< pointer to the current data in ring buffer*/
-    uint8_t *rx_head_ptr;               /*!< pointer to the head of RX item*/
     uint8_t rx_data_buf[SOC_UART_FIFO_LEN]; /*!< Data buffer to stash FIFO data*/
     uint8_t rx_stash_len;               /*!< stashed data length.(When using flow control, after reading out FIFO data, if we fail to push to buffer, we can just stash them.) */
     uint32_t rx_int_usr_mask;           /*!< RX interrupt status. Valid at any time, regardless of RX buffer status. */
@@ -819,6 +825,9 @@ static uint32_t UART_ISR_ATTR uart_enable_tx_write_fifo(uart_port_t uart_num, co
     UART_ENTER_CRITICAL_SAFE(&(uart_context[uart_num].spinlock));
     if (UART_IS_MODE_SET(uart_num, UART_MODE_RS485_HALF_DUPLEX)) {
         uart_hal_set_rts(&(uart_context[uart_num].hal), 0);
+        // If any new things are written to fifo, then we can always clear the previous TX_DONE interrupt bit (if it was set)
+        // Old TX_DONE bit might reset the RTS, leading new tx transmission failure for rs485 mode
+        uart_hal_clr_intsts_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
         uart_hal_ena_intr_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
     }
     uart_hal_write_txfifo(&(uart_context[uart_num].hal), pbuf, len, &sent_len);
@@ -1111,7 +1120,14 @@ static void UART_ISR_ATTR uart_rx_intr_handler_default(void *param)
                 UART_EXIT_CRITICAL_ISR(&(uart_context[uart_num].spinlock));
                 xSemaphoreGiveFromISR(p_uart_obj[uart_num]->tx_done_sem, &HPTaskAwoken);
             }
-        } else {
+        }
+    #if SOC_UART_SUPPORT_WAKEUP_INT
+        else if (uart_intr_status & UART_INTR_WAKEUP) {
+            uart_hal_clr_intsts_mask(&(uart_context[uart_num].hal), UART_INTR_WAKEUP);
+            uart_event.type = UART_WAKEUP;
+        }
+    #endif
+        else {
             uart_hal_clr_intsts_mask(&(uart_context[uart_num].hal), uart_intr_status); /*simply clear all other intr status*/
             uart_event.type = UART_EVENT_MAX;
         }
@@ -1141,13 +1157,32 @@ esp_err_t uart_wait_tx_done(uart_port_t uart_num, TickType_t ticks_to_wait)
     if (res == pdFALSE) {
         return ESP_ERR_TIMEOUT;
     }
+
+    // Check the enable status of TX_DONE: If already enabled, then let the isr handle the status bit;
+    // If not enabled, then make sure to clear the status bit before enabling the TX_DONE interrupt bit
+    UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
+    bool is_rs485_mode = UART_IS_MODE_SET(uart_num, UART_MODE_RS485_HALF_DUPLEX);
+    bool disabled = !(uart_hal_get_intr_ena_status(&(uart_context[uart_num].hal)) & UART_INTR_TX_DONE);
+    // For RS485 mode, TX_DONE interrupt is enabled for every tx transmission, so there shouldn't be a case of
+    // interrupt not enabled but raw bit is set.
+    assert(!(is_rs485_mode &&
+             disabled &&
+             uart_hal_get_intraw_mask(&(uart_context[uart_num].hal)) & UART_INTR_TX_DONE));
+    // If decided to register for the TX_DONE event, then we should clear any possible old tx transmission status.
+    // The clear operation of RS485 mode should only be handled in isr or when writing to tx fifo.
+    if (disabled && !is_rs485_mode) {
+        uart_hal_clr_intsts_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
+    }
+    UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
     xSemaphoreTake(p_uart_obj[uart_num]->tx_done_sem, 0);
+    // FSM status register update comes later than TX_DONE interrupt raw bit raise
+    // The maximum time takes for FSM status register to update is (6 APB clock cycles + 3 UART core clock cycles)
+    // Therefore, to avoid the situation of TX_DONE bit being cleared but FSM didn't be recognized as IDLE (which
+    // would lead to timeout), a delay of 2us is added in between.
+    esp_rom_delay_us(2);
     if (uart_hal_is_tx_idle(&(uart_context[uart_num].hal))) {
         xSemaphoreGive(p_uart_obj[uart_num]->tx_mux);
         return ESP_OK;
-    }
-    if (!UART_IS_MODE_SET(uart_num, UART_MODE_RS485_HALF_DUPLEX)) {
-        uart_hal_clr_intsts_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
     }
     UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
     uart_hal_ena_intr_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
@@ -1283,53 +1318,35 @@ int uart_read_bytes(uart_port_t uart_num, void *buf, uint32_t length, TickType_t
     ESP_RETURN_ON_FALSE((buf), (-1), UART_TAG, "uart data null");
     ESP_RETURN_ON_FALSE((p_uart_obj[uart_num]), (-1), UART_TAG, "uart driver error");
     uint8_t *data = NULL;
-    size_t size;
+    size_t size = 0;
     size_t copy_len = 0;
-    int len_tmp;
     if (xSemaphoreTake(p_uart_obj[uart_num]->rx_mux, (portTickType)ticks_to_wait) != pdTRUE) {
         return -1;
     }
     while (length) {
-        if (p_uart_obj[uart_num]->rx_cur_remain == 0) {
-            data = (uint8_t *) xRingbufferReceive(p_uart_obj[uart_num]->rx_ring_buf, &size, (portTickType) ticks_to_wait);
-            if (data) {
-                p_uart_obj[uart_num]->rx_head_ptr = data;
-                p_uart_obj[uart_num]->rx_ptr = data;
-                p_uart_obj[uart_num]->rx_cur_remain = size;
+        data = (uint8_t *) xRingbufferReceiveUpTo(p_uart_obj[uart_num]->rx_ring_buf, &size, (portTickType) ticks_to_wait, length);
+        if (!data) {
+            // When using dual cores, `rx_buffer_full_flg` may read and write on different cores at same time,
+            // which may lose synchronization. So we also need to call `uart_check_buf_full` once when ringbuffer is empty
+            // to solve the possible asynchronous issues.
+            if (uart_check_buf_full(uart_num)) {
+                // This condition will never be true if `uart_read_bytes`
+                // and `uart_rx_intr_handler_default` are scheduled on the same core.
+                continue;
             } else {
-                //When using dual cores, `rx_buffer_full_flg` may read and write on different cores at same time,
-                //which may lose synchronization. So we also need to call `uart_check_buf_full` once when ringbuffer is empty
-                //to solve the possible asynchronous issues.
-                if (uart_check_buf_full(uart_num)) {
-                    //This condition will never be true if `uart_read_bytes`
-                    //and `uart_rx_intr_handler_default` are scheduled on the same core.
-                    continue;
-                } else {
-                    xSemaphoreGive(p_uart_obj[uart_num]->rx_mux);
-                    return copy_len;
-                }
+                // Timeout while not fetched all requested length
+                break;
             }
         }
-        if (p_uart_obj[uart_num]->rx_cur_remain > length) {
-            len_tmp = length;
-        } else {
-            len_tmp = p_uart_obj[uart_num]->rx_cur_remain;
-        }
-        memcpy((uint8_t *)buf + copy_len, p_uart_obj[uart_num]->rx_ptr, len_tmp);
+        memcpy((uint8_t *)buf + copy_len, data, size);
         UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
-        p_uart_obj[uart_num]->rx_buffered_len -= len_tmp;
-        uart_pattern_queue_update(uart_num, len_tmp);
-        p_uart_obj[uart_num]->rx_ptr += len_tmp;
+        p_uart_obj[uart_num]->rx_buffered_len -= size;
+        uart_pattern_queue_update(uart_num, size);
         UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
-        p_uart_obj[uart_num]->rx_cur_remain -= len_tmp;
-        copy_len += len_tmp;
-        length -= len_tmp;
-        if (p_uart_obj[uart_num]->rx_cur_remain == 0) {
-            vRingbufferReturnItem(p_uart_obj[uart_num]->rx_ring_buf, p_uart_obj[uart_num]->rx_head_ptr);
-            p_uart_obj[uart_num]->rx_head_ptr = NULL;
-            p_uart_obj[uart_num]->rx_ptr = NULL;
-            uart_check_buf_full(uart_num);
-        }
+        copy_len += size;
+        length -= size;
+        vRingbufferReturnItem(p_uart_obj[uart_num]->rx_ring_buf, data);
+        uart_check_buf_full(uart_num);
     }
 
     xSemaphoreGive(p_uart_obj[uart_num]->rx_mux);
@@ -1371,25 +1388,15 @@ esp_err_t uart_flush_input(uart_port_t uart_num)
     uart_hal_disable_intr_mask(&(uart_context[uart_num].hal), UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);
     UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
     while (true) {
-        if (p_uart->rx_head_ptr) {
-            vRingbufferReturnItem(p_uart->rx_ring_buf, p_uart->rx_head_ptr);
-            UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
-            p_uart_obj[uart_num]->rx_buffered_len -= p_uart->rx_cur_remain;
-            uart_pattern_queue_update(uart_num, p_uart->rx_cur_remain);
-            UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
-            p_uart->rx_ptr = NULL;
-            p_uart->rx_cur_remain = 0;
-            p_uart->rx_head_ptr = NULL;
-        }
         data = (uint8_t*) xRingbufferReceive(p_uart->rx_ring_buf, &size, (portTickType) 0);
-        if(data == NULL) {
+        if (data == NULL) {
             bool error = false;
             UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
-            if( p_uart_obj[uart_num]->rx_buffered_len != 0 ) {
+            if (p_uart_obj[uart_num]->rx_buffered_len != 0) {
                 p_uart_obj[uart_num]->rx_buffered_len = 0;
                 error = true;
             }
-            //We also need to clear the `rx_buffer_full_flg` here.
+            // We also need to clear the `rx_buffer_full_flg` here.
             p_uart_obj[uart_num]->rx_buffer_full_flg = false;
             UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
             if (error) {
@@ -1413,9 +1420,6 @@ esp_err_t uart_flush_input(uart_port_t uart_num)
             }
         }
     }
-    p_uart->rx_ptr = NULL;
-    p_uart->rx_cur_remain = 0;
-    p_uart->rx_head_ptr = NULL;
     uart_hal_rxfifo_rst(&(uart_context[uart_num].hal));
     /* Only re-enable UART_INTR_RXFIFO_TOUT or UART_INTR_RXFIFO_FULL if they
      * were explicitly enabled by the user. */
@@ -1596,10 +1600,7 @@ esp_err_t uart_driver_install(uart_port_t uart_num, int rx_buffer_size, int tx_b
         p_uart_obj[uart_num]->rx_buffered_len = 0;
         p_uart_obj[uart_num]->rx_buffer_full_flg = false;
         p_uart_obj[uart_num]->tx_waiting_fifo = false;
-        p_uart_obj[uart_num]->rx_ptr = NULL;
-        p_uart_obj[uart_num]->rx_cur_remain = 0;
         p_uart_obj[uart_num]->rx_int_usr_mask = UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT;
-        p_uart_obj[uart_num]->rx_head_ptr = NULL;
         p_uart_obj[uart_num]->tx_buf_size = tx_buffer_size;
         p_uart_obj[uart_num]->uart_select_notif_callback = NULL;
         xSemaphoreGive(p_uart_obj[uart_num]->tx_fifo_sem);

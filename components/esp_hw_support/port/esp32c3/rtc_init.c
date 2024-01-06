@@ -19,6 +19,9 @@
 #include "soc_log.h"
 #include "esp_efuse.h"
 #include "esp_efuse_table.h"
+#ifndef BOOTLOADER_BUILD
+#include "esp_private/sar_periph_ctrl.h"
+#endif
 
 static const char *TAG = "rtc_init";
 
@@ -154,6 +157,11 @@ void rtc_init(rtc_config_t cfg)
     REG_WRITE(RTC_CNTL_INT_ENA_REG, 0);
     REG_WRITE(RTC_CNTL_INT_CLR_REG, UINT32_MAX);
     REGI2C_WRITE_MASK(I2C_ULP, I2C_ULP_IR_FORCE_XPD_CK, 1);
+
+#ifndef BOOTLOADER_BUILD
+    //initialise SAR related peripheral register settings
+    sar_periph_ctrl_init();
+#endif
 }
 
 rtc_vddsdio_config_t rtc_vddsdio_get_config(void)
@@ -317,7 +325,7 @@ static void set_rtc_dig_dbias()
     3. a reasonable rtc_dbias can be calculated by a certion formula.
     */
     uint32_t rtc_dbias = 28, dig_dbias = 28;
-    uint8_t chip_version = efuse_hal_get_minor_chip_version();
+    unsigned chip_version = efuse_hal_chip_revision();
     if (chip_version >= 3) {
         dig_dbias = get_dig_dbias_by_efuse(chip_version);
         if (dig_dbias != 0) {
