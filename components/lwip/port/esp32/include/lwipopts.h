@@ -44,6 +44,11 @@
 #include "netif/dhcp_state.h"
 #include "sntp/sntp_get_set_time.h"
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 /* Enable all Espressif-only options */
 
 /*
@@ -255,12 +260,29 @@
 #define ESP_DHCP_DISABLE_CLIENT_ID      CONFIG_LWIP_DHCP_DISABLE_CLIENT_ID
 
 #define DHCP_DEFINE_CUSTOM_TIMEOUTS     1
-/* Since for embedded devices it's not that hard to miss a discover packet, so lower
- * the discover retry backoff time from (2,4,8,16,32,60,60)s to (500m,1,2,4,8,15,15)s.
- */
- #define DHCP_REQUEST_TIMEOUT_SEQUENCE(state, tries)   (state == DHCP_STATE_REQUESTING ? \
-                                                       (uint16_t)(1 * 1000) : \
-                                                       (uint16_t)(((tries) < 6 ? 1 << (tries) : 60) * 250))
+   /* Since for embedded devices it's not that hard to miss a discover packet, so lower
+    * the discover and request retry backoff time from (2,4,8,16,32,60,60)s to (500m,1,2,4,4,4,4)s.
+    */
+#define DHCP_REQUEST_TIMEOUT_SEQUENCE(tries) ((uint16_t)(((tries) < 5 ? 1 << (tries) : 16) * 250))
+
+#define DHCP_COARSE_TIMER_SECS CONFIG_LWIP_DHCP_COARSE_TIMER_SECS
+
+static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
+{
+    uint32_t timeout = lease;
+    if (timeout == 0) {
+      timeout = min;
+    }
+    timeout = (timeout + DHCP_COARSE_TIMER_SECS - 1) / DHCP_COARSE_TIMER_SECS;
+    return timeout;
+}
+
+#define DHCP_CALC_TIMEOUT_FROM_OFFERED_T0_LEASE(dhcp) \
+   timeout_from_offered((dhcp)->offered_t0_lease, 120)
+#define DHCP_CALC_TIMEOUT_FROM_OFFERED_T1_RENEW(dhcp) \
+   timeout_from_offered((dhcp)->offered_t1_renew, (dhcp)->t0_timeout >> 1 /* 50% */)
+#define DHCP_CALC_TIMEOUT_FROM_OFFERED_T2_REBIND(dhcp) \
+   timeout_from_offered((dhcp)->offered_t2_rebind, ((dhcp)->t0_timeout / 8) * 7 /* 87.5% */)
 
 /**
  * CONFIG_LWIP_DHCP_RESTORE_LAST_IP==1: Last valid IP address obtained from DHCP server
@@ -354,6 +376,21 @@
  * Define to 0 if your device is low on memory.
  */
 #define TCP_QUEUE_OOSEQ                 CONFIG_LWIP_TCP_QUEUE_OOSEQ
+
+/**
+ * TCP_OOSEQ_MAX_PBUFS: The maximum number of pbufs
+ * queued on ooseq per pcb
+ */
+#if TCP_QUEUE_OOSEQ
+#define TCP_OOSEQ_MAX_PBUFS             CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS
+#endif
+
+/**
+ * TCP_OOSEQ_TIMEOUT: Timeout for each pbuf queued in TCP OOSEQ, in RTOs.
+ */
+#if TCP_QUEUE_OOSEQ
+#define TCP_OOSEQ_TIMEOUT               CONFIG_LWIP_TCP_OOSEQ_TIMEOUT
+#endif
 
 /**
  * LWIP_TCP_SACK_OUT==1: TCP will support sending selective acknowledgements (SACKs).
@@ -783,6 +820,16 @@
  */
 #define LWIP_ND6_NUM_NEIGHBORS          CONFIG_LWIP_IPV6_ND6_NUM_NEIGHBORS
 
+
+/**
+ * ESP_MLDV6_REPORT==1: This option allows to send mldv6 report periodically.
+ */
+#ifdef CONFIG_LWIP_ESP_MLDV6_REPORT
+#define ESP_MLDV6_REPORT              1
+#else
+#define ESP_MLDV6_REPORT              0
+#endif
+
 /*
    ---------------------------------------
    ---------- Hook options ---------------
@@ -1073,5 +1120,9 @@
 #define SNTP_GET_SYSTEM_TIME(sec, us)     (sntp_get_system_time(&(sec), &(us)))
 
 #define SOC_SEND_LOG //printf
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __LWIPOPTS_H__ */

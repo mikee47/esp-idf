@@ -34,6 +34,7 @@
 
 /* ---------------------------- Definitions --------------------------------- */
 //Internal Macros
+#define TWAI_TAG "TWAI"
 #define TWAI_CHECK(cond, ret_val) ({                                        \
             if (!(cond)) {                                                  \
                 return (ret_val);                                           \
@@ -47,11 +48,11 @@
 })
 #define TWAI_SET_FLAG(var, mask)    ((var) |= (mask))
 #define TWAI_RESET_FLAG(var, mask)  ((var) &= ~(mask))
+
 #ifdef CONFIG_TWAI_ISR_IN_IRAM
 #define TWAI_ISR_ATTR       IRAM_ATTR
 #define TWAI_MALLOC_CAPS    (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
 #else
-#define TWAI_TAG "TWAI"
 #define TWAI_ISR_ATTR
 #define TWAI_MALLOC_CAPS    MALLOC_CAP_DEFAULT
 #endif  //CONFIG_TWAI_ISR_IN_IRAM
@@ -282,19 +283,30 @@ TWAI_ISR_ATTR static void twai_intr_handler_main(void *arg)
 }
 
 /* -------------------------- Helper functions  ----------------------------- */
-
-static void twai_configure_gpio(gpio_num_t tx, gpio_num_t rx, gpio_num_t clkout, gpio_num_t bus_status)
+static esp_err_t twai_configure_gpio(gpio_num_t tx, gpio_num_t rx, gpio_num_t clkout, gpio_num_t bus_status)
 {
-    //Set TX pin
-    gpio_set_pull_mode(tx, GPIO_FLOATING);
-    esp_rom_gpio_connect_out_signal(tx, TWAI_TX_IDX, false, false);
-    esp_rom_gpio_pad_select_gpio(tx);
-
+    esp_err_t ret = ESP_FAIL;
+    assert(tx >= 0 && rx >= 0);
+    // if TX and RX set to the same GPIO, which means we want to create a loop-back in the GPIO matrix
+    bool io_loop_back = (tx == rx);
+    gpio_config_t gpio_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .pull_down_en = false,
+        .pull_up_en = false,
+    };
     //Set RX pin
-    gpio_set_pull_mode(rx, GPIO_FLOATING);
+    gpio_conf.mode = GPIO_MODE_INPUT | (io_loop_back ? GPIO_MODE_OUTPUT : 0);
+    gpio_conf.pin_bit_mask = 1ULL << rx;
+    ret = gpio_config(&gpio_conf);
+    TWAI_CHECK(ESP_OK == ret, ret);
     esp_rom_gpio_connect_in_signal(rx, TWAI_RX_IDX, false);
-    esp_rom_gpio_pad_select_gpio(rx);
-    gpio_set_direction(rx, GPIO_MODE_INPUT);
+
+    //Set TX pin
+    gpio_conf.mode = GPIO_MODE_OUTPUT | (io_loop_back ? GPIO_MODE_INPUT : 0);
+    gpio_conf.pin_bit_mask = 1ULL << tx;
+    ret = gpio_config(&gpio_conf);
+    TWAI_CHECK(ESP_OK == ret, ret);
+    esp_rom_gpio_connect_out_signal(tx, TWAI_TX_IDX, false, false);
 
     //Configure output clock pin (Optional)
     if (clkout >= 0 && clkout < GPIO_NUM_MAX) {
@@ -309,6 +321,7 @@ static void twai_configure_gpio(gpio_num_t tx, gpio_num_t rx, gpio_num_t clkout,
         esp_rom_gpio_connect_out_signal(bus_status, TWAI_BUS_OFF_ON_IDX, false, false);
         esp_rom_gpio_pad_select_gpio(bus_status);
     }
+    return ESP_OK;
 }
 
 static void twai_free_driver_obj(twai_obj_t *p_obj)
@@ -432,6 +445,12 @@ esp_err_t twai_driver_install(const twai_general_config_t *g_config, const twai_
     p_twai_obj_dummy->mode = g_config->mode;
     p_twai_obj_dummy->alerts_enabled = g_config->alerts_enabled;
 
+    //Allocate GPIO
+    ret = twai_configure_gpio(g_config->tx_io, g_config->rx_io, g_config->clkout_io, g_config->bus_off_io);
+    if (ESP_OK != ret) {
+        goto err;
+    }
+
     //Initialize TWAI peripheral registers, and allocate interrupt
     TWAI_ENTER_CRITICAL();
     if (p_twai_obj == NULL) {
@@ -449,8 +468,7 @@ esp_err_t twai_driver_install(const twai_general_config_t *g_config, const twai_
     twai_hal_configure(&twai_context, t_config, f_config, DRIVER_DEFAULT_INTERRUPTS, g_config->clkout_divider);
     TWAI_EXIT_CRITICAL();
 
-    //Allocate GPIO and Interrupts
-    twai_configure_gpio(g_config->tx_io, g_config->rx_io, g_config->clkout_io, g_config->bus_off_io);
+    //Allocate Interrupts
     ESP_ERROR_CHECK(esp_intr_alloc(ETS_TWAI_INTR_SOURCE, g_config->intr_flags, twai_intr_handler_main, NULL, &p_twai_obj->isr_handle));
 
 #ifdef CONFIG_PM_ENABLE
@@ -674,8 +692,14 @@ esp_err_t twai_get_status_info(twai_status_info_t *status_info)
     TWAI_CHECK(status_info != NULL, ESP_ERR_INVALID_ARG);
 
     TWAI_ENTER_CRITICAL();
-    status_info->tx_error_counter = twai_hal_get_tec(&twai_context);
-    status_info->rx_error_counter = twai_hal_get_rec(&twai_context);
+    if (p_twai_obj->mode == TWAI_MODE_LISTEN_ONLY) {
+        //Error counters are frozen under listen only mode thus are meaningless. Simply return 0 in this case.
+        status_info->tx_error_counter = 0;
+        status_info->rx_error_counter = 0;
+    } else {
+        status_info->tx_error_counter = twai_hal_get_tec(&twai_context);
+        status_info->rx_error_counter = twai_hal_get_rec(&twai_context);
+    }
     status_info->msgs_to_tx = p_twai_obj->tx_msg_count;
     status_info->msgs_to_rx = p_twai_obj->rx_msg_count;
     status_info->tx_failed_count = p_twai_obj->tx_failed_count;

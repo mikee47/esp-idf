@@ -172,6 +172,24 @@
 #define BLE_42_FEATURE_SUPPORT   FALSE
 #endif
 
+#if (UC_BT_BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+#define BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER   TRUE
+#else
+#define BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER   FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_PERIODIC_ADV_ENH == TRUE)
+#define BLE_FEAT_PERIODIC_ADV_ENH   TRUE
+#else
+#define BLE_FEAT_PERIODIC_ADV_ENH   FALSE
+#endif
+
+#if (UC_BT_BLE_HIGH_DUTY_ADV_INTERVAL == TRUE)
+#define BLE_HIGH_DUTY_ADV_INTERVAL TRUE
+#else
+#define BLE_HIGH_DUTY_ADV_INTERVAL FALSE
+#endif
+
 #if (UC_BT_BLE_RPA_SUPPORTED  == TRUE)
 #define CONTROLLER_RPA_LIST_ENABLE   TRUE
 #else
@@ -206,6 +224,12 @@
 #define GATTC_CONNECT_RETRY_EN     TRUE
 #else
 #define GATTC_CONNECT_RETRY_EN     FALSE
+#endif
+
+#ifdef UC_BT_GATTC_NOTIF_REG_MAX
+#define BTA_GATTC_NOTIF_REG_MAX     UC_BT_GATTC_NOTIF_REG_MAX
+#else
+#define BTA_GATTC_NOTIF_REG_MAX     5
 #endif
 
 #if (UC_BT_SMP_ENABLE)
@@ -461,8 +485,30 @@
 #define GATTS_SEND_SERVICE_CHANGE_MODE UC_BT_GATTS_SEND_SERVICE_CHANGE_MODE
 #endif
 
+#if (UC_BT_GATTS_ROBUST_CACHING_ENABLED == TRUE)
+#define GATTS_ROBUST_CACHING_ENABLED TRUE
+#else
+#define GATTS_ROBUST_CACHING_ENABLED FALSE
+#endif
+
+#if (UC_BT_GATTS_DEVICE_NAME_WRITABLE == TRUE)
+#define GATTS_DEVICE_NAME_WRITABLE TRUE
+#else
+#define GATTS_DEVICE_NAME_WRITABLE FALSE
+#endif
+
+#if (UC_BT_GATTS_APPEARANCE_WRITABLE == TRUE)
+#define GATTS_APPEARANCE_WRITABLE TRUE
+#else
+#define GATTS_APPEARANCE_WRITABLE FALSE
+#endif
+
 #ifdef UC_BT_BLE_ACT_SCAN_REP_ADV_SCAN
 #define BTM_BLE_ACTIVE_SCAN_REPORT_ADV_SCAN_RSP_INDIVIDUALLY    UC_BT_BLE_ACT_SCAN_REP_ADV_SCAN
+#endif
+
+#ifdef UC_BT_BLE_RPA_TIMEOUT
+#define BTM_BLE_PRIVATE_ADDR_INT UC_BT_BLE_RPA_TIMEOUT
 #endif
 
 /* This feature is used to eanble interleaved scan*/
@@ -919,7 +965,7 @@
 /* TRUE to include Sniff Subrating */
 #if (BTA_DM_PM_INCLUDED == TRUE)
 #ifndef BTM_SSR_INCLUDED
-#define BTM_SSR_INCLUDED                FALSE
+#define BTM_SSR_INCLUDED                TRUE
 #endif
 #endif /* BTA_DM_PM_INCLUDED */
 
@@ -1427,7 +1473,7 @@
 
 /* The maximum number of simultaneous client and server connections. */
 #ifndef SDP_MAX_CONNECTIONS
-#define SDP_MAX_CONNECTIONS         2 // 4
+#define SDP_MAX_CONNECTIONS         4
 #endif
 
 /* The MTU size for the L2CAP configuration. */

@@ -15,7 +15,7 @@ LINKER_SCRIPTS += esp32.rom.ld \
 ifndef CONFIG_SPIRAM_CACHE_WORKAROUND
 LINKER_SCRIPTS += esp32.rom.newlib-funcs.ld
 
-ifdef CONFIG_ESP32_REV_MIN_3
+ifeq ($(shell expr $(CONFIG_ESP32_REV_MIN_FULL) \>= 300), 1)
 LINKER_SCRIPTS += esp32.rom.eco3.ld
 endif
 
@@ -24,18 +24,19 @@ ifdef CONFIG_NEWLIB_NANO_FORMAT
 LINKER_SCRIPTS += esp32.rom.newlib-nano.ld
 endif
 
-endif #CONFIG_SPIRAM_CACHE_WORKAROUND
-
-ifndef CONFIG_SPI_FLASH_ROM_DRIVER_PATCH
-LINKER_SCRIPTS += esp32.rom.spiflash.ld
-endif
-
 ifndef CONFIG_SDK_TOOLCHAIN_SUPPORTS_TIME_WIDE_64_BITS
 # If SDK_TOOLCHAIN_SUPPORTS_TIME_WIDE_64_BITS option is defined
 # then all time functions from the ROM memory will not be linked.
 # Instead, those functions can be used from the toolchain by ESP-IDF.
 LINKER_SCRIPTS += esp32.rom.newlib-time.ld
 endif
+
+endif #CONFIG_SPIRAM_CACHE_WORKAROUND
+
+ifndef CONFIG_SPI_FLASH_ROM_DRIVER_PATCH
+LINKER_SCRIPTS += esp32.rom.spiflash.ld
+endif
+
 
 COMPONENT_ADD_LDFLAGS += -L $(COMPONENT_PATH)/esp32/ld \
                          $(addprefix -T ,$(LINKER_SCRIPTS)) \

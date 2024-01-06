@@ -238,6 +238,11 @@ typedef enum {
 #define ESP_BT_GAP_MIN_INQ_LEN                (0x01)  /*!< Minimum inquiry duration, unit is 1.28s */
 #define ESP_BT_GAP_MAX_INQ_LEN                (0x30)  /*!< Maximum inquiry duration, unit is 1.28s */
 
+/** Minimum, Default and Maximum poll interval **/
+#define ESP_BT_GAP_TPOLL_MIN                  (0x0006) /*!< Minimum poll interval, unit is 625 microseconds */
+#define ESP_BT_GAP_TPOLL_DFT                  (0x0028) /*!< Default poll interval, unit is 625 microseconds */
+#define ESP_BT_GAP_TPOLL_MAX                  (0x1000) /*!< Maximum poll interval, unit is 625 microseconds */
+
 /// GAP state callback parameters
 typedef union {
     /**
@@ -584,7 +589,9 @@ esp_err_t esp_bt_gap_config_eir_data(esp_bt_eir_data_t *eir_data);
 /**
  * @brief           This function is called to set class of device.
  *                  The structure esp_bt_gap_cb_t will be called with ESP_BT_GAP_SET_COD_EVT after set COD ends.
- *                  Some profile have special restrictions on class of device, changes may cause these profile do not work.
+ *                  This function should be called after Bluetooth profiles are initialized, otherwise the user configured
+ *                  class of device can be overwritten.
+ *                  Some profiles have special restrictions on class of device, and changes may make these profiles unable to work.
  *
  * @param[in]       cod - class of device
  * @param[in]       mode - setting mode

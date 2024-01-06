@@ -151,13 +151,12 @@
 
 /*-------------------------- Power Management CAPS ---------------------------*/
 #define SOC_PM_SUPPORT_EXT_WAKEUP       (1)
-
 #define SOC_PM_SUPPORT_WIFI_WAKEUP      (1)
-
 #define SOC_PM_SUPPORT_BT_WAKEUP        (1)
-
+#define SOC_PM_SUPPORT_RTC_PERIPH_PD              (1)
 /* Has a centralized DMA, which is shared with all peripherals */
 #define SOC_AES_GDMA            (1)
+
 
 #define SOC_AES_SUPPORT_AES_128 (1)
 #define SOC_AES_SUPPORT_AES_256 (1)
@@ -166,6 +165,9 @@
 // Remove them when GDMA driver API is ready
 #define SOC_GDMA_SHA_DMA_CHANNEL  (3)
 #define SOC_GDMA_AES_DMA_CHANNEL  (4)
+
+/*-------------------------- eFuse CAPS----------------------------*/
+#define SOC_EFUSE_BLOCK9_KEY_PURPOSE_QUIRK 1  // AES-XTS key purpose not supported for this block
 
 /*-------------------------- WI-FI HARDWARE TSF CAPS -------------------------------*/
 #define SOC_WIFI_HW_TSF                 (1)
@@ -185,5 +187,5 @@
 /*-------------------------- COEXISTENCE HARDWARE PTI CAPS -------------------------------*/
 #define SOC_COEX_HW_PTI                 (1)
 
-/*------------------------------ BLE --------------------------------------------*/
-#define SOC_BLE_UPDATE_OWN_RPA  (1)
+/* ---------------------------- Bluetooth ------------------------------- */
+#define SOC_BLE_DEVICE_PRIVACY_SUPPORTED    (1)

@@ -92,6 +92,40 @@ static void rtc_sleep_pd(rtc_sleep_pd_config_t cfg)
     REG_SET_FIELD(FE2_TX_INTERP_CTRL, FE2_TX_INF_FORCE_PU, ~cfg.fe_pd);
 }
 
+void rtc_sleep_get_default_config(uint32_t sleep_flags, rtc_sleep_config_t *out_config)
+{
+    *out_config = (rtc_sleep_config_t) {
+        .lslp_mem_inf_fpu = 0,
+        .rtc_mem_inf_fpu = 0,
+        .rtc_mem_inf_follow_cpu = ((sleep_flags) & RTC_SLEEP_PD_RTC_MEM_FOLLOW_CPU) ? 1 : 0,
+        .rtc_fastmem_pd_en = ((sleep_flags) & RTC_SLEEP_PD_RTC_FAST_MEM) ? 1 : 0,
+        .rtc_slowmem_pd_en = ((sleep_flags) & RTC_SLEEP_PD_RTC_SLOW_MEM) ? 1 : 0,
+        .rtc_peri_pd_en = ((sleep_flags) & RTC_SLEEP_PD_RTC_PERIPH) ? 1 : 0,
+        .wifi_pd_en = 0,
+        .int_8m_pd_en = ((sleep_flags) & RTC_SLEEP_PD_INT_8M) ? 1 : 0,
+        .rom_mem_pd_en = 0,
+        .deep_slp = ((sleep_flags) & RTC_SLEEP_PD_DIG) ? 1 : 0,
+        .wdt_flashboot_mod_en = 0,
+        .lslp_meminf_pd = 1,
+        .vddsdio_pd_en = ((sleep_flags) & RTC_SLEEP_PD_VDDSDIO) ? 1 : 0,
+        .xtal_fpu = ((sleep_flags) & RTC_SLEEP_PD_XTAL) ? 0 : 1,
+    };
+
+    if ((sleep_flags) & RTC_SLEEP_PD_DIG) {
+        out_config->dig_dbias_wak = RTC_CNTL_DBIAS_1V10;
+        out_config->dig_dbias_slp = RTC_CNTL_DBIAS_0V90;
+        out_config->rtc_dbias_wak = RTC_CNTL_DBIAS_1V10;
+        out_config->rtc_dbias_slp = RTC_CNTL_DBIAS_0V90;
+        out_config->dbg_atten_slp = !((sleep_flags) & RTC_SLEEP_PD_INT_8M) ? RTC_CNTL_DBG_ATTEN_NODROP : RTC_CNTL_DBG_ATTEN_DEFAULT;
+    } else {
+        out_config->dig_dbias_wak = RTC_CNTL_DBIAS_1V10;
+        out_config->dig_dbias_slp = !((sleep_flags) & RTC_SLEEP_PD_INT_8M) ? RTC_CNTL_DBIAS_1V10 : RTC_CNTL_DBIAS_0V90;
+        out_config->rtc_dbias_wak = RTC_CNTL_DBIAS_1V10;
+        out_config->rtc_dbias_slp = !((sleep_flags) & RTC_SLEEP_PD_INT_8M) ? RTC_CNTL_DBIAS_1V10 : RTC_CNTL_DBIAS_0V90;
+        out_config->dbg_atten_slp =  RTC_CNTL_DBG_ATTEN_NODROP;
+    }
+}
+
 void rtc_sleep_init(rtc_sleep_config_t cfg)
 {
     // set shortest possible sleep time limit
@@ -180,10 +214,8 @@ void rtc_sleep_init(rtc_sleep_config_t cfg)
         CLEAR_PERI_REG_MASK(RTC_CNTL_ANA_CONF_REG,
                 RTC_CNTL_CKGEN_I2C_PU | RTC_CNTL_PLL_I2C_PU |
                 RTC_CNTL_RFRX_PBUS_PU | RTC_CNTL_TXRF_I2C_PU);
-        CLEAR_PERI_REG_MASK(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_BB_I2C_FORCE_PU);
     } else {
         CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_PWC_REG, RTC_CNTL_DG_WRAP_PD_EN);
-        REG_SET_FIELD(RTC_CNTL_BIAS_CONF_REG, RTC_CNTL_DBG_ATTEN, 0);
     }
 
     REG_SET_FIELD(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_XTL_FORCE_PU, cfg.xtal_fpu);
@@ -202,6 +234,7 @@ void rtc_sleep_init(rtc_sleep_config_t cfg)
     REG_SET_FIELD(RTC_CNTL_REG, RTC_CNTL_DBIAS_WAK, cfg.rtc_dbias_wak);
     REG_SET_FIELD(RTC_CNTL_REG, RTC_CNTL_DIG_DBIAS_WAK, cfg.dig_dbias_wak);
     REG_SET_FIELD(RTC_CNTL_REG, RTC_CNTL_DIG_DBIAS_SLP, cfg.dig_dbias_slp);
+    REG_SET_FIELD(RTC_CNTL_BIAS_CONF_REG, RTC_CNTL_DBG_ATTEN, cfg.dbg_atten_slp);
 }
 
 void rtc_sleep_low_init(uint32_t slowclk_period)

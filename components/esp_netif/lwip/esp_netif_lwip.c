@@ -27,6 +27,8 @@
 #include "lwip/dhcp.h"
 #include "lwip/ip_addr.h"
 #include "lwip/ip6_addr.h"
+#include "lwip/mld6.h"
+#include "lwip/prot/mld6.h"
 #include "lwip/nd6.h"
 #include "lwip/priv/tcpip_priv.h"
 #include "lwip/netif.h"
@@ -122,6 +124,12 @@ static void esp_netif_api_cb(void *api_msg)
     sys_sem_signal(&api_sync_sem);
 
 }
+
+
+#if LWIP_IPV6
+static void netif_set_mldv6_flag(struct netif *netif);
+static void netif_unset_mldv6_flag(struct netif *netif);
+#endif /* LWIP_IPV6 */
 
 /**
  * @brief Initiates a tcpip remote call if called from another task
@@ -304,6 +312,10 @@ void* esp_netif_get_netif_impl(esp_netif_t *esp_netif)
 
 esp_err_t esp_netif_init(void)
 {
+    if (esp_netif_objects_init() != ESP_OK) {
+        ESP_LOGE(TAG, "esp_netif_objects_init() failed");
+        return ESP_FAIL;
+    }
     if (tcpip_initialized == false) {
         tcpip_initialized = true;
 #if CONFIG_LWIP_HOOK_TCP_ISN_DEFAULT
@@ -342,6 +354,11 @@ esp_err_t esp_netif_init(void)
 
 esp_err_t esp_netif_deinit(void)
 {
+    /* esp_netif_deinit() is not supported (as lwIP deinit isn't suported either)
+     * Once it's supported, we need to de-initialize:
+     * - netif objects calling esp_netif_objects_deinit()
+     * - other lwIP specific objects (see the comment after tcpip_initialized)
+     */
     if (tcpip_initialized == true) {
         /* deinit of LwIP not supported:
          * do not deinit semaphores and states,
@@ -507,8 +524,6 @@ esp_netif_t *esp_netif_new(const esp_netif_config_t *esp_netif_config)
     lwip_netif->state = esp_netif;
     esp_netif->lwip_netif = lwip_netif;
 
-    esp_netif_add_to_list(esp_netif);
-
     // Configure the created object with provided configuration
     esp_err_t ret =  esp_netif_init_configuration(esp_netif, esp_netif_config);
     if (ret != ESP_OK) {
@@ -516,6 +531,8 @@ esp_netif_t *esp_netif_new(const esp_netif_config_t *esp_netif_config)
         esp_netif_destroy(esp_netif);
         return NULL;
     }
+
+    esp_netif_add_to_list(esp_netif);
 
     return esp_netif;
 }
@@ -526,6 +543,11 @@ static void esp_netif_lwip_remove(esp_netif_t *esp_netif)
         if (netif_is_up(esp_netif->lwip_netif)) {
             netif_set_down(esp_netif->lwip_netif);
         }
+#if ESP_MLDV6_REPORT && LWIP_IPV6
+        if (esp_netif->flags & ESP_NETIF_FLAG_MLDV6_REPORT) {
+            netif_unset_mldv6_flag(esp_netif->lwip_netif);
+        }
+#endif
         netif_remove(esp_netif->lwip_netif);
     }
 }
@@ -1302,6 +1324,11 @@ static esp_err_t esp_netif_down_api(esp_netif_api_msg_t *msg)
         esp_netif_reset_ip_info(esp_netif);
     }
 #if CONFIG_LWIP_IPV6
+#if ESP_MLDV6_REPORT
+        if (esp_netif->flags & ESP_NETIF_FLAG_MLDV6_REPORT) {
+            netif_unset_mldv6_flag(esp_netif->lwip_netif);
+        }
+#endif
     for(int8_t i = 0 ;i < LWIP_IPV6_NUM_ADDRESSES ;i++) {
         netif_ip6_addr_set(lwip_netif, i, IP6_ADDR_ANY6);
         netif_ip6_addr_set_valid_life(lwip_netif, i, 0);
@@ -1577,6 +1604,34 @@ esp_err_t esp_netif_get_dns_info(esp_netif_t *esp_netif, esp_netif_dns_type_t ty
 }
 
 #if CONFIG_LWIP_IPV6
+
+#ifdef CONFIG_LWIP_MLDV6_TMR_INTERVAL
+
+static void netif_send_mldv6(void *arg)
+{
+    struct netif *netif = arg;
+    if (!netif_is_up(netif)) {
+        return;
+    }
+    mld6_report_groups(netif);
+    sys_timeout(CONFIG_LWIP_MLDV6_TMR_INTERVAL*1000, netif_send_mldv6, netif);
+}
+
+static void netif_set_mldv6_flag(struct netif *netif)
+{
+    if (!netif_is_up(netif)) {
+        return;
+    }
+    sys_timeout(CONFIG_LWIP_MLDV6_TMR_INTERVAL*1000, netif_send_mldv6, netif);
+}
+
+static void netif_unset_mldv6_flag(struct netif *netif)
+{
+    sys_untimeout(netif_send_mldv6, netif);
+}
+
+#endif
+
 esp_ip6_addr_type_t esp_netif_ip6_get_addr_type(esp_ip6_addr_t* ip6_addr)
 {
     ip6_addr_t* lwip_ip6_info = (ip6_addr_t*)ip6_addr;
@@ -1606,6 +1661,7 @@ static void esp_netif_nd6_cb(struct netif *p_netif, uint8_t ip_index)
 
     esp_netif_ip6_info_t ip6_info;
     ip6_addr_t lwip_ip6_info;
+    esp_netif_t *esp_netif = p_netif->state;
     //notify event
     ip_event_got_ip6_t evt = { .esp_netif = p_netif->state, .if_index = -1, .ip_index = ip_index };
 
@@ -1617,6 +1673,13 @@ static void esp_netif_nd6_cb(struct netif *p_netif, uint8_t ip_index)
     ip6_info.ip.zone = 0;   // zero out zone, as not used in lwip
 #endif /* LWIP_IPV6_SCOPES */
 
+    if (esp_netif->flags&ESP_NETIF_FLAG_MLDV6_REPORT) {
+#if ESP_MLDV6_REPORT
+        netif_set_mldv6_flag(p_netif);
+#else
+        ESP_LOGW(TAG,"CONFIG_LWIP_ESP_MLDV6_REPORT not enabled, but esp-netif configured with ESP_NETIF_FLAG_MLDV6_REPORT");
+#endif
+    }
     memcpy(&evt.ip6_info, &ip6_info, sizeof(esp_netif_ip6_info_t));
     int ret = esp_event_send_internal(IP_EVENT, IP_EVENT_GOT_IP6, &evt, sizeof(evt), 0);
     if (ESP_OK != ret) {
@@ -1803,37 +1866,64 @@ esp_err_t esp_netif_dhcps_option(esp_netif_t *esp_netif, esp_netif_dhcp_option_m
                 break;
             }
             case ESP_NETIF_SUBNET_MASK: {
+                esp_netif_ip_info_t *default_ip = esp_netif->ip_info;
+                ip4_addr_t *config_netmask = (ip4_addr_t *)opt_val;
+                if (!memcmp(&default_ip->netmask, config_netmask, sizeof(struct ip4_addr))) {
+                    ESP_LOGE(TAG, "Please use esp_netif_set_ip_info interface to configure subnet mask");
+                    /*
+                     * This API directly changes the subnet mask of dhcp server
+                     * but the subnet mask of the network interface has not changed
+                     * If you need to change the subnet mask of dhcp server
+                     * you need to change the subnet mask of the network interface first.
+                     * If the subnet mask of dhcp server is changed
+                     * and the subnet mask of network interface is inconsistent
+                     * with the subnet mask of dhcp sever, it may lead to the failure of sending packets.
+                     * If want to configure the subnet mask of dhcp server
+                     * please use esp_netif_set_ip_info to change the subnet mask of network interface first.
+                     */
+                    return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
+                }
                 memcpy(opt_info, opt_val, opt_len);
                 break;
             }
             case REQUESTED_IP_ADDRESS: {
                 esp_netif_ip_info_t info;
-                uint32_t softap_ip = 0;
+                uint32_t server_ip = 0;
                 uint32_t start_ip = 0;
                 uint32_t end_ip = 0;
+                uint32_t range_start_ip = 0;
+                uint32_t range_end_ip = 0;
                 dhcps_lease_t *poll = opt_val;
 
                 if (poll->enable) {
                     memset(&info, 0x00, sizeof(esp_netif_ip_info_t));
                     esp_netif_get_ip_info(esp_netif, &info);
 
-                    softap_ip = htonl(info.ip.addr);
+                    server_ip = htonl(info.ip.addr);
+                    range_start_ip = server_ip & htonl(info.netmask.addr);
+                    range_end_ip = range_start_ip | ~htonl(info.netmask.addr);
+                    if (server_ip == range_start_ip || server_ip == range_end_ip) {
+                        return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
+                    }
                     start_ip = htonl(poll->start_ip.addr);
                     end_ip = htonl(poll->end_ip.addr);
 
                     /*config ip information can't contain local ip*/
-                    if ((start_ip <= softap_ip) && (softap_ip <= end_ip)) {
+                    if ((server_ip >= start_ip) && (server_ip <= end_ip)) {
                         return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
                     }
 
                     /*config ip information must be in the same segment as the local ip*/
-                    softap_ip >>= 8;
-                    if ((start_ip >> 8 != softap_ip)
-                        || (end_ip >> 8 != softap_ip)) {
+                    if (start_ip <= range_start_ip || start_ip >= range_end_ip) {
                         return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
                     }
 
-                    if (end_ip - start_ip > DHCPS_MAX_LEASE) {
+                    if (end_ip <= range_start_ip || end_ip >= range_end_ip) {
+                        return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
+                    }
+
+                    /*The number of configured ip is less than DHCPS_MAX_LEASE*/
+                    if ((end_ip - start_ip + 1 > DHCPS_MAX_LEASE) || (start_ip >= end_ip)) {
                         return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
                     }
                 }

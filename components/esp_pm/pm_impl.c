@@ -301,10 +301,6 @@ esp_err_t esp_pm_configure(const void* vconfig)
     s_config_changed = true;
     portEXIT_CRITICAL(&s_switch_lock);
 
-#if CONFIG_PM_SLP_DISABLE_GPIO && SOC_GPIO_SUPPORT_SLP_SWITCH
-    esp_sleep_enable_gpio_switch(config->light_sleep_enable);
-#endif
-
 #if CONFIG_ESP_SYSTEM_PM_POWER_DOWN_CPU && SOC_PM_SUPPORT_CPU_PD
     esp_err_t ret = esp_sleep_cpu_pd_low_init(config->light_sleep_enable);
     if (config->light_sleep_enable && ret != ESP_OK) {
@@ -678,15 +674,17 @@ void esp_pm_impl_dump_stats(FILE* out)
 
     time_in_mode[cur_mode] += now - last_mode_change_time;
 
-    fprintf(out, "Mode stats:\n");
+    fprintf(out, "\nMode stats:\n");
+    fprintf(out, "%-8s  %-10s  %-10s  %-10s\n", "Mode", "CPU_freq", "Time(us)", "Time(%)");
     for (int i = 0; i < PM_MODE_COUNT; ++i) {
         if (i == PM_MODE_LIGHT_SLEEP && !s_light_sleep_en) {
             /* don't display light sleep mode if it's not enabled */
             continue;
         }
-        fprintf(out, "%8s  %3dM %12lld  %2d%%\n",
+        fprintf(out, "%-8s  %-3dM%-7s %-10lld  %-2d%%\n",
                 s_mode_names[i],
                 s_cpu_freq_by_mode[i].freq_mhz,
+                "",                                     //Empty space to align columns
                 time_in_mode[i],
                 (int) (time_in_mode[i] * 100 / now));
     }
@@ -726,9 +724,6 @@ void esp_pm_impl_init(void)
     esp_pm_trace_init();
 #endif
 
-#if CONFIG_PM_SLP_DISABLE_GPIO && SOC_GPIO_SUPPORT_SLP_SWITCH
-    esp_sleep_config_gpio_isolate();
-#endif
     ESP_ERROR_CHECK(esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "rtos0",
             &s_rtos_lock_handle[0]));
     ESP_ERROR_CHECK(esp_pm_lock_acquire(s_rtos_lock_handle[0]));

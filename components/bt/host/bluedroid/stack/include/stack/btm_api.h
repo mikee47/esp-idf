@@ -152,11 +152,13 @@ typedef struct {
 typedef enum{
     BTM_WHITELIST_REMOVE     = 0X00,
     BTM_WHITELIST_ADD        = 0X01,
+    BTM_WHITELIST_CLEAR      = 0x02,
 }tBTM_WL_OPERATION;
 
 
 typedef void (tBTM_DEV_STATUS_CB) (tBTM_DEV_STATUS status);
 
+typedef void (tBTM_GET_DEV_NAME_CBACK) (UINT8 status, char *name);
 
 /* Callback function for when a vendor specific event occurs. The length and
 ** array of returned parameter bytes are included. This asynchronous event
@@ -189,7 +191,7 @@ typedef void (tBTM_SET_PKT_DATA_LENGTH_CBACK) (UINT8 status, tBTM_LE_SET_PKT_DAT
 
 typedef void (tBTM_SET_RAND_ADDR_CBACK) (UINT8 status);
 
-typedef void (tBTM_ADD_WHITELIST_CBACK) (UINT8 status, tBTM_WL_OPERATION wl_opration);
+typedef void (tBTM_UPDATE_WHITELIST_CBACK) (UINT8 status, tBTM_WL_OPERATION wl_opration);
 
 typedef void (tBTM_SET_LOCAL_PRIVACY_CBACK) (UINT8 status);
 
@@ -1060,6 +1062,17 @@ enum {
 };
 typedef UINT8 tBTM_SCO_DATA_FLAG;
 
+/* Count the number of SCO Data Packet Status */
+typedef struct {
+    UINT32 rx_total;
+    UINT32 rx_correct;
+    UINT32 rx_err;
+    UINT32 rx_none;
+    UINT32 rx_lost;
+    UINT32 tx_total;
+    UINT32 tx_discarded;
+} tBTM_SCO_PKT_STAT_NUMS;
+
 /***************************
 **  SCO Callback Functions
 ****************************/
@@ -1761,6 +1774,7 @@ typedef union {
 #if BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE
     tBTM_LE_COMPLT      complt;     /* BTM_LE_COMPLT_EVT      */
     tSMP_OOB_DATA_TYPE  req_oob_type;
+    tSMP_LOC_OOB_DATA   local_oob_data;
 #endif
     tBTM_LE_KEY         key;
 } tBTM_LE_EVT_DATA;
@@ -4183,6 +4197,17 @@ tBTM_STATUS BTM_SetAfhChannels (AFH_CHANNELS channels, tBTM_CMPL_CB *p_afh_chann
 **
 *******************************************************************************/
 tBTM_STATUS BTM_BleSetChannels (BLE_CHANNELS channels, tBTM_CMPL_CB *p_ble_channels_cmpl_cback);
+
+/*******************************************************************************
+**
+** Function         BTM_PktStatNumsGet
+**
+** Description      This function is called to get the number of packet status struct
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTM_PktStatNumsGet(UINT16 sync_conn_handle, tBTM_SCO_PKT_STAT_NUMS *pkt_nums);
 
 /*
 #ifdef __cplusplus

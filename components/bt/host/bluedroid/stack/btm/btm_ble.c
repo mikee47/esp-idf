@@ -40,6 +40,7 @@
 //#define LOG_TAG "bt_btm_ble"
 //#include "osi/include/log.h"
 #if BLE_INCLUDED == TRUE
+extern void BTM_UpdateAddrInfor(uint8_t addr_type, BD_ADDR bda);
 #if SMP_INCLUDED == TRUE
 // The temp variable to pass parameter between functions when in the connected event callback.
 static BOOLEAN temp_enhanced = FALSE;
@@ -493,6 +494,62 @@ void BTM_BleOobDataReply(BD_ADDR bd_addr, UINT8 res, UINT8 len, UINT8 *p_data)
 
     p_dev_rec->sec_flags |= BTM_SEC_LE_AUTHENTICATED;
     SMP_OobDataReply(bd_addr, res_smp, len, p_data);
+#endif
+}
+
+/*******************************************************************************
+**
+** Function         BTM_BleSecureConnectionOobDataReply
+**
+** Description      This function is called to provide the OOB data for
+**                  SMP in response to BTM_LE_SC_OOB_REQ_EVT when secure connection
+**
+** Parameters:      bd_addr     - Address of the peer device
+**                  p_c         - pointer to Confirmation
+**                  p_r         - pointer to Randomizer
+**
+*******************************************************************************/
+void BTM_BleSecureConnectionOobDataReply(BD_ADDR bd_addr, UINT8 *p_c, UINT8 *p_r)
+{
+#if SMP_INCLUDED == TRUE
+    tBTM_SEC_DEV_REC *p_dev_rec = btm_find_dev (bd_addr);
+
+    BTM_TRACE_DEBUG ("%s", __func__);
+
+    if (p_dev_rec == NULL) {
+        BTM_TRACE_ERROR("%s Unknown device", __func__);
+        return;
+    }
+
+    p_dev_rec->sec_flags |= BTM_SEC_LE_AUTHENTICATED;
+
+    tSMP_SC_OOB_DATA oob;
+    memset(&oob, 0, sizeof(tSMP_SC_OOB_DATA));
+
+    oob.peer_oob_data.present = true;
+    memcpy(&oob.peer_oob_data.commitment, p_c, BT_OCTET16_LEN);
+    memcpy(&oob.peer_oob_data.randomizer, p_r, BT_OCTET16_LEN);
+    oob.peer_oob_data.addr_rcvd_from.type = p_dev_rec->ble.ble_addr_type;
+    memcpy(oob.peer_oob_data.addr_rcvd_from.bda, bd_addr, BD_ADDR_LEN);
+
+    SMP_SecureConnectionOobDataReply((UINT8 *)&oob);
+#endif
+}
+
+/*******************************************************************************
+**
+** Function         BTM_BleSecureConnectionCreateOobData
+**
+** Description      This function is called to create the OOB data for
+**                  SMP when secure connection
+**
+*******************************************************************************/
+void BTM_BleSecureConnectionCreateOobData(void)
+{
+#if SMP_INCLUDED == TRUE
+    BTM_TRACE_DEBUG ("%s", __func__);
+
+    SMP_CreateLocalSecureConnectionsOobData();
 #endif
 }
 
@@ -1987,6 +2044,17 @@ void btm_ble_conn_complete(UINT8 *p, UINT16 evt_len, BOOLEAN enhanced)
         if (enhanced) {
             STREAM_TO_BDADDR   (local_rpa, p);
             STREAM_TO_BDADDR   (peer_rpa, p);
+#if (CONTROLLER_RPA_LIST_ENABLE == TRUE)
+            BD_ADDR dummy_bda = {0};
+            /* For controller generates RPA, if resolving list contains no matching entry, it use identity address.
+             * So we should update own addr type in Host */
+            if (memcmp(local_rpa, dummy_bda, BD_ADDR_LEN)) {
+                btm_cb.ble_ctr_cb.addr_mgnt_cb.own_addr_type |= (BLE_ADDR_TYPE_ID_BIT);
+                BTM_UpdateAddrInfor(btm_cb.ble_ctr_cb.addr_mgnt_cb.own_addr_type, local_rpa);
+            } else {
+                btm_cb.ble_ctr_cb.addr_mgnt_cb.own_addr_type &= (~BLE_ADDR_TYPE_ID_BIT);
+            }
+#endif
         }
 #if (BLE_PRIVACY_SPT == TRUE )
         peer_addr_type = bda_type;
@@ -2212,7 +2280,15 @@ UINT8 btm_proc_smp_cback(tSMP_EVT event, BD_ADDR bd_addr, tSMP_EVT_DATA *p_data)
 
         }
     } else {
-        BTM_TRACE_ERROR("btm_proc_smp_cback received for unknown device");
+        if (event == SMP_SC_LOC_OOB_DATA_UP_EVT) {
+            tBTM_LE_EVT_DATA evt_data;
+            memcpy(&evt_data.local_oob_data, &p_data->loc_oob_data, sizeof(tSMP_LOC_OOB_DATA));
+            if (btm_cb.api.p_le_callback) {
+                (*btm_cb.api.p_le_callback)(event, bd_addr, &evt_data);
+            }
+        } else {
+            BTM_TRACE_ERROR("btm_proc_smp_cback received for unknown device");
+        }
     }
     return 0;
 }
@@ -2566,7 +2642,11 @@ static void btm_ble_process_irk(tSMP_ENC *p)
         memcpy(btm_cb.devcb.id_keys.irk, p->param_buf, BT_OCTET16_LEN);
         btm_notify_new_key(BTM_BLE_KEY_TYPE_ID);
 
-#if BLE_PRIVACY_SPT == TRUE
+#if (CONTROLLER_RPA_LIST_ENABLE == TRUE)
+        btm_ble_add_default_entry_to_resolving_list();
+#endif
+
+#if (BLE_PRIVACY_SPT == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == FALSE)
         /* if privacy is enabled, new RPA should be calculated */
         if (btm_cb.ble_ctr_cb.privacy_mode != BTM_PRIVACY_NONE) {
             btm_gen_resolvable_private_addr((void *)btm_gen_resolve_paddr_low);

@@ -50,6 +50,11 @@
 #endif
 
 #if CONFIG_IDF_TARGET_ESP32
+#include "soc/dport_reg.h"
+#endif
+#include "hal/efuse_hal.h"
+
+#if CONFIG_IDF_TARGET_ESP32
 extern wifi_mac_time_update_cb_t s_wifi_mac_time_update_cb;
 #endif
 
@@ -232,6 +237,11 @@ static inline void phy_digital_regs_load(void)
     }
 }
 
+bool esp_phy_is_initialized(void)
+{
+    return s_is_phy_calibrated;
+}
+
 void esp_phy_enable(void)
 {
     _lock_acquire(&s_phy_access_lock);
@@ -292,11 +302,17 @@ void IRAM_ATTR esp_wifi_bt_power_domain_on(void)
     _lock_acquire(&s_wifi_bt_pd_controller.lock);
     if (s_wifi_bt_pd_controller.count++ == 0) {
         CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_PWC_REG, RTC_CNTL_WIFI_FORCE_PD);
-#if !CONFIG_IDF_TARGET_ESP32
+        esp_rom_delay_us(10);
+        wifi_bt_common_module_enable();
+#if CONFIG_IDF_TARGET_ESP32
+        DPORT_SET_PERI_REG_MASK(DPORT_CORE_RST_EN_REG, MODEM_RESET_FIELD_WHEN_PU);
+        DPORT_CLEAR_PERI_REG_MASK(DPORT_CORE_RST_EN_REG, MODEM_RESET_FIELD_WHEN_PU);
+#else
         SET_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, MODEM_RESET_FIELD_WHEN_PU);
         CLEAR_PERI_REG_MASK(SYSCON_WIFI_RST_EN_REG, MODEM_RESET_FIELD_WHEN_PU);
 #endif
         CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_WIFI_FORCE_ISO);
+        wifi_bt_common_module_disable();
     }
     _lock_release(&s_wifi_bt_pd_controller.lock);
 }
@@ -674,7 +690,13 @@ void esp_phy_load_cal_and_init(void)
     ESP_LOGI(TAG, "phy_version %s", phy_version);
 
 #if CONFIG_IDF_TARGET_ESP32S2
-    phy_eco_version_sel(esp_efuse_get_chip_ver());
+    phy_eco_version_sel(efuse_hal_chip_revision() / 100);
+#endif
+
+    // Set PHY whether in combo module
+    // For comode mode, phy enable will be not in WiFi RX state
+#if SOC_PHY_COMBO_MODULE
+    phy_init_param_set(0);
 #endif
 
     esp_phy_calibration_data_t* cal_data =
@@ -717,7 +739,7 @@ void esp_phy_load_cal_and_init(void)
 #endif
 
 #ifdef CONFIG_ESP32_PHY_CALIBRATION_AND_DATA_STORAGE
-    esp_phy_calibration_mode_t calibration_mode = PHY_RF_CAL_PARTIAL;
+    esp_phy_calibration_mode_t calibration_mode = CONFIG_ESP_PHY_CALIBRATION_MODE;
     uint8_t sta_mac[6];
     if (rtc_get_reset_reason(0) == DEEPSLEEP_RESET) {
         calibration_mode = PHY_RF_CAL_NONE;
