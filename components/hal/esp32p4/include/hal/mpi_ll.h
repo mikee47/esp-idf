@@ -104,7 +104,7 @@ static inline void mpi_ll_write_to_mem_block(mpi_param_t param, size_t offset, c
 {
     uint32_t mem_base = MPI_LL_BLOCK_BASES[param] + offset;
     uint32_t* pbase = (uint32_t*) mem_base;
-    uint32_t copy_words = MIN(num_words, n);
+    int copy_words = MIN(num_words, n);
 
     /* Copy MPI data to memory block registers */
     for (int i = 0; i < copy_words; i++) {
@@ -112,7 +112,7 @@ static inline void mpi_ll_write_to_mem_block(mpi_param_t param, size_t offset, c
     }
 
     /* Zero any remaining memory block data */
-    for (int i = copy_words; i < num_words; i++) {
+    for (int i = copy_words; i < (int)num_words; i++) {
         pbase[i] = 0;
     }
 }

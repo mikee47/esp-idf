@@ -108,7 +108,7 @@ static inline void ecc_ll_write_param(ecc_ll_param_t param, const uint8_t *buf, 
             return;
     }
 
-    for (int i = 0; i < len; i += 4) {
+    for (int i = 0; i < (int)len; i += 4) {
         memcpy(&word, buf + i, 4);
         REG_WRITE(reg + i, word);
     }

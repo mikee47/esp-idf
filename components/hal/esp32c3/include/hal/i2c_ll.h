@@ -592,7 +592,7 @@ static inline void i2c_ll_get_stop_timing(i2c_dev_t *hw, int *setup_time, int *h
 __attribute__((always_inline))
 static inline void i2c_ll_write_txfifo(i2c_dev_t *hw, const uint8_t *ptr, uint8_t len)
 {
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < (int)len; i++) {
         HAL_FORCE_MODIFY_U32_REG_FIELD(hw->fifo_data, data, ptr[i]);
     }
 }
@@ -609,7 +609,7 @@ static inline void i2c_ll_write_txfifo(i2c_dev_t *hw, const uint8_t *ptr, uint8_
 __attribute__((always_inline))
 static inline void i2c_ll_read_rxfifo(i2c_dev_t *hw, uint8_t *ptr, uint8_t len)
 {
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < (int)len; i++) {
         ptr[i] = HAL_FORCE_READ_U32_REG_FIELD(hw->fifo_data, data);
     }
 }
@@ -624,7 +624,7 @@ static inline void i2c_ll_read_rxfifo(i2c_dev_t *hw, uint8_t *ptr, uint8_t len)
  */
 static inline void i2c_ll_write_by_nonfifo(i2c_dev_t *hw, uint8_t ram_offset, const uint8_t *ptr, uint8_t len)
 {
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < (int)len; i++) {
         hw->txfifo_mem[i + ram_offset] = ptr[i];
     }
 }
@@ -639,7 +639,7 @@ static inline void i2c_ll_write_by_nonfifo(i2c_dev_t *hw, uint8_t ram_offset, co
  */
 static inline void i2c_ll_read_by_nonfifo(i2c_dev_t *hw, uint8_t ram_offset, uint8_t *ptr, uint8_t len)
 {
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < (int)len; i++) {
         ptr[i] = hw->rxfifo_mem[i + ram_offset];
     }
 }

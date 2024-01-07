@@ -325,7 +325,7 @@ static inline void ecdsa_ll_write_param(ecdsa_ll_param_t param, const uint8_t *b
             return;
     }
 
-    for (int i = 0; i < len; i += 4) {
+    for (int i = 0; i < (int)len; i += 4) {
         memcpy(&word, buf + i, 4);
         REG_WRITE(reg + i, word);
     }
