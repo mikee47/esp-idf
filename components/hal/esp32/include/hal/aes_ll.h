@@ -51,7 +51,7 @@ static inline uint8_t aes_ll_write_key(const uint8_t *key, size_t key_word_len)
     /* Memcpy to avoid potential unaligned access */
     uint32_t key_word;
 
-    for (int i = 0; i < key_word_len; i++) {
+    for (int i = 0; i < (int)key_word_len; i++) {
         memcpy(&key_word, key + 4 * i, 4);
         DPORT_REG_WRITE(AES_KEY_BASE + i * 4, key_word);
         key_bytes_in_hardware += 4;

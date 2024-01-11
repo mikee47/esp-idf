@@ -547,7 +547,7 @@ __attribute__((always_inline))
 static inline void i2c_ll_write_txfifo(i2c_dev_t *hw, uint8_t *ptr, uint8_t len)
 {
     uint32_t fifo_addr = (hw == &I2C0) ? 0x6001301c : 0x6002701c;
-    for(int i = 0; i < len; i++) {
+    for(int i = 0; i < (int)len; i++) {
         WRITE_PERI_REG(fifo_addr, ptr[i]);
     }
 }
@@ -565,7 +565,7 @@ __attribute__((always_inline))
 static inline void i2c_ll_read_rxfifo(i2c_dev_t *hw, uint8_t *ptr, uint8_t len)
 {
     uint32_t fifo_addr = (hw == &I2C0) ? 0x6001301c : 0x6002701c;
-    for(int i = 0; i < len; i++) {
+    for(int i = 0; i < (int)len; i++) {
         ptr[i] = READ_PERI_REG(fifo_addr);
     }
 }
