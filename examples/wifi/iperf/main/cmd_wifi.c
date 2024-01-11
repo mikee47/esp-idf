@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "esp_console.h"
 #include "argtable3/argtable3.h"
@@ -201,6 +202,7 @@ static int wifi_cmd_sta(int argc, char **argv)
     }
 
     ESP_LOGI(TAG, "sta connecting to '%s'", sta_args.ssid->sval[0]);
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     wifi_cmd_sta_join(sta_args.ssid->sval[0], sta_args.password->sval[0]);
     return 0;
 }
@@ -420,7 +422,9 @@ static int wifi_cmd_iperf(int argc, char **argv)
     }
 
 
-    ESP_LOGI(TAG, "mode=%s-%s sip=%d.%d.%d.%d:%d, dip=%d.%d.%d.%d:%d, interval=%d, time=%d",
+    ESP_LOGI(TAG, "mode=%s-%s sip=%" PRId32 ".%" PRId32 ".%" PRId32 ".%" PRId32 ":%d,\
+             dip=%" PRId32 ".%" PRId32 ".%" PRId32 ".%" PRId32 ":%d,\
+             interval=%" PRId32 ", time=%" PRId32 "",
              cfg.flag & IPERF_FLAG_TCP ? "tcp" : "udp",
              cfg.flag & IPERF_FLAG_SERVER ? "server" : "client",
              cfg.source_ip4 & 0xFF, (cfg.source_ip4 >> 8) & 0xFF, (cfg.source_ip4 >> 16) & 0xFF,

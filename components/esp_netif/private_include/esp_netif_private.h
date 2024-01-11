@@ -1,16 +1,8 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_NETIF_PRIVATE_H_
 #define _ESP_NETIF_PRIVATE_H_
@@ -112,22 +104,11 @@ esp_err_t esp_netif_add_to_list(esp_netif_t* netif);
 esp_err_t esp_netif_remove_from_list(esp_netif_t* netif);
 
 /**
- * @brief Iterates over list of interfaces without list locking. Returns first netif if NULL given as parameter
- *
- * Used for bulk search loops to avoid locking and unlocking every iteration. esp_netif_list_lock and esp_netif_list_unlock
- * must be used to guard the search loop
- *
- * @param[in]  esp_netif Handle to esp-netif instance
- *
- * @return First netif from the list if supplied parameter is NULL, next one otherwise
- */
-esp_netif_t* esp_netif_next_unsafe(esp_netif_t* netif);
-
-/**
  * @brief Locking network interface list. Use only in connection with esp_netif_next_unsafe
  *
  * @return ESP_OK on success, specific mutex error if failed to lock
  */
+
 esp_err_t esp_netif_list_lock(void);
 
 /**
@@ -144,34 +125,6 @@ void esp_netif_list_unlock(void);
  * @return true if supplied interface is listed
  */
 bool esp_netif_is_netif_listed(esp_netif_t *esp_netif);
-
-/**
- * @brief  Cause the TCP/IP stack to join a multicast group
- *
- * @param[in]  esp_netif Handle to esp-netif instance
- * @param[in]  addr      The multicast group to join
- *
- * @return
- *         - ESP_OK
- *         - ESP_ERR_ESP_NETIF_INVALID_PARAMS
- *         - ESP_ERR_ESP_NETIF_MLD6_FAILED
- *         - ESP_ERR_NO_MEM
- */
-esp_err_t esp_netif_join_ip6_multicast_group(esp_netif_t *esp_netif, const esp_ip6_addr_t *addr);
-
-/**
- * @brief  Cause the TCP/IP stack to leave a multicast group
- *
- * @param[in]  esp_netif Handle to esp-netif instance
- * @param[in]  addr      The multicast group to leave
- *
- * @return
- *         - ESP_OK
- *         - ESP_ERR_ESP_NETIF_INVALID_PARAMS
- *         - ESP_ERR_ESP_NETIF_MLD6_FAILED
- *         - ESP_ERR_NO_MEM
- */
-esp_err_t esp_netif_leave_ip6_multicast_group(esp_netif_t *esp_netif, const esp_ip6_addr_t *addr);
 
 /**
  * @brief  Cause the TCP/IP stack to add an IPv6 address to the interface
@@ -200,5 +153,18 @@ esp_err_t esp_netif_add_ip6_address(esp_netif_t *esp_netif, const ip_event_add_i
  *         - ESP_ERR_NO_MEM
  */
 esp_err_t esp_netif_remove_ip6_address(esp_netif_t *esp_netif, const esp_ip6_addr_t *addr);
+
+/**
+ * @brief Initialize netif objects for handling lists of interfaces one esp_netif level
+ *
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t esp_netif_objects_init(void);
+
+/**
+ * @brief Deinitialize netif objects
+ *
+ */
+void esp_netif_objects_deinit(void);
 
 #endif //_ESP_NETIF_PRIVATE_H_

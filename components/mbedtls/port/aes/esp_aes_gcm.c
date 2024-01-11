@@ -6,7 +6,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * SPDX-FileContributor: 2016-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2016-2023 Espressif Systems (Shanghai) CO LTD
  */
 /*
  *  The AES block cipher was designed by Vincent Rijmen and Joan Daemen.
@@ -14,21 +14,27 @@
  *  http://csrc.nist.gov/encryption/aes/rijndael/Rijndael.pdf
  *  http://csrc.nist.gov/publications/fips/fips197/fips-197.pdf
  */
-#include "soc/soc_caps.h"
-
+#include <string.h>
 
 #include "aes/esp_aes.h"
 #include "aes/esp_aes_gcm.h"
 #include "aes/esp_aes_internal.h"
 #include "hal/aes_hal.h"
 
-#include "esp_log.h"
 #include "mbedtls/aes.h"
+#include "mbedtls/error.h"
+#include "mbedtls/gcm.h"
+
 #include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "soc/soc_caps.h"
 #include "soc/soc_memory_layout.h"
 
-#include "mbedtls/error.h"
-#include <string.h>
+#include "sdkconfig.h"
+
+#if SOC_AES_SUPPORT_DMA
+#include "esp_aes_dma_priv.h"
+#endif
 
 #define ESP_PUT_BE64(a, val)                                    \
     do {                                                        \
@@ -313,6 +319,10 @@ void esp_aes_gcm_init( esp_gcm_context *ctx)
 
     bzero(ctx, sizeof(esp_gcm_context));
 
+#if SOC_AES_SUPPORT_DMA && CONFIG_MBEDTLS_AES_USE_INTERRUPT
+    esp_aes_intr_alloc();
+#endif
+
     ctx->gcm_state = ESP_AES_GCM_STATE_INIT;
 }
 
@@ -340,12 +350,12 @@ int esp_aes_gcm_starts( esp_gcm_context *ctx,
 
     if (!ctx) {
         ESP_LOGE(TAG, "No AES context supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
 
     if (!iv) {
         ESP_LOGE(TAG, "No IV supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
 
     /* Initialize AES-GCM context */
@@ -371,7 +381,10 @@ int esp_aes_gcm_starts( esp_gcm_context *ctx,
         esp_aes_release_hardware();
 #else
         memset(ctx->H, 0, sizeof(ctx->H));
-        esp_aes_crypt_ecb(&ctx->aes_ctx, MBEDTLS_AES_ENCRYPT, ctx->H, ctx->H);
+        int ret = esp_aes_crypt_ecb(&ctx->aes_ctx, MBEDTLS_AES_ENCRYPT, ctx->H, ctx->H);
+        if (ret != 0) {
+            return ret;
+        }
 #endif
         gcm_gen_table(ctx);
     }
@@ -401,12 +414,12 @@ int esp_aes_gcm_update_ad( esp_gcm_context *ctx,
 
     if (!ctx) {
         ESP_LOGE(TAG, "No AES context supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
 
     if ( (aad_len > 0) && !aad) {
         ESP_LOGE(TAG, "No aad supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
 
     if (ctx->gcm_state != ESP_AES_GCM_STATE_START) {
@@ -435,21 +448,21 @@ int esp_aes_gcm_update( esp_gcm_context *ctx,
 
     if (!output_length) {
         ESP_LOGE(TAG, "No output length supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
     *output_length = input_length;
 
     if (!ctx) {
         ESP_LOGE(TAG, "No GCM context supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
     if (!input) {
         ESP_LOGE(TAG, "No input supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
     if (!output) {
         ESP_LOGE(TAG, "No output supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
 
     if ( output > input && (size_t) ( output - input ) < input_length ) {
@@ -474,7 +487,10 @@ int esp_aes_gcm_update( esp_gcm_context *ctx,
     }
 
     /* Output = GCTR(J0, Input): Encrypt/Decrypt the input */
-    esp_aes_crypt_ctr(&ctx->aes_ctx, input_length, &nc_off, nonce_counter, stream, input, output);
+    int ret = esp_aes_crypt_ctr(&ctx->aes_ctx, input_length, &nc_off, nonce_counter, stream, input, output);
+    if (ret != 0) {
+        return ret;
+    }
 
     /* ICB gets auto incremented after GCTR operation here so update the context */
     memcpy(ctx->J0, nonce_counter, AES_BLOCK_BYTES);
@@ -510,9 +526,7 @@ int esp_aes_gcm_finish( esp_gcm_context *ctx,
     esp_gcm_ghash(ctx, len_block, AES_BLOCK_BYTES, ctx->ghash);
 
     /* Tag T = GCTR(J0, ) where T is truncated to tag_len */
-    esp_aes_crypt_ctr(&ctx->aes_ctx, tag_len, &nc_off, ctx->ori_j0, stream, ctx->ghash, tag);
-
-    return 0;
+    return esp_aes_crypt_ctr(&ctx->aes_ctx, tag_len, &nc_off, ctx->ori_j0, stream, ctx->ghash, tag);
 }
 
 #if SOC_AES_SUPPORT_GCM
@@ -611,7 +625,7 @@ int esp_aes_gcm_crypt_and_tag( esp_gcm_context *ctx,
        In practice, e.g. with mbedtls the length of aad will always be short
     */
     if (aad_len > LLDESC_MAX_NUM_PER_DESC) {
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
     /* IV and AD are limited to 2^32 bits, so 2^29 bytes */
     /* IV is not allowed to be zero length */
@@ -623,17 +637,17 @@ int esp_aes_gcm_crypt_and_tag( esp_gcm_context *ctx,
 
     if (!ctx) {
         ESP_LOGE(TAG, "No AES context supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
 
     if (!iv) {
         ESP_LOGE(TAG, "No IV supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
 
     if ( (aad_len > 0) && !aad) {
         ESP_LOGE(TAG, "No aad supplied");
-        return -1;
+        return MBEDTLS_ERR_GCM_BAD_INPUT;
     }
 
     /* Initialize AES-GCM context */
@@ -686,6 +700,10 @@ int esp_aes_gcm_crypt_and_tag( esp_gcm_context *ctx,
     aes_hal_gcm_set_j0(ctx->J0);
 
     ret = esp_aes_process_dma_gcm(&ctx->aes_ctx, input, output, length, aad_head_desc, aad_len);
+    if (ret != 0) {
+        esp_aes_release_hardware();
+        return ret;
+    }
 
     aes_hal_gcm_read_tag(tag, tag_len);
 

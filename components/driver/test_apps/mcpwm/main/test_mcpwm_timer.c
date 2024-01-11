@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -100,7 +100,7 @@ typedef struct {
     uint32_t accumulate_empty_counts;
 } test_mcpwm_timer_user_data_t;
 
-static bool test_on_stop(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_data)
+IRAM_ATTR static bool test_on_stop(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_data)
 {
     test_mcpwm_timer_user_data_t *udata = (test_mcpwm_timer_user_data_t *)user_data;
     BaseType_t high_task_wakeup = pdFALSE;
@@ -110,7 +110,7 @@ static bool test_on_stop(mcpwm_timer_handle_t timer, const mcpwm_timer_event_dat
     return high_task_wakeup == pdTRUE;
 }
 
-static bool test_on_full(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_data)
+IRAM_ATTR static bool test_on_full(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_data)
 {
     test_mcpwm_timer_user_data_t *udata = (test_mcpwm_timer_user_data_t *)user_data;
     BaseType_t high_task_wakeup = pdFALSE;
@@ -122,7 +122,7 @@ static bool test_on_full(mcpwm_timer_handle_t timer, const mcpwm_timer_event_dat
     return high_task_wakeup == pdTRUE;
 }
 
-static bool test_on_empty(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_data)
+IRAM_ATTR static bool test_on_empty(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_data)
 {
     test_mcpwm_timer_user_data_t *udata = (test_mcpwm_timer_user_data_t *)user_data;
     BaseType_t high_task_wakeup = pdFALSE;
@@ -177,9 +177,26 @@ TEST_CASE("mcpwm_timer_event_callbacks", "[mcpwm]")
     bits = xEventGroupWaitBits(event_group, TEST_MCPWM_TIMER_EVENT_BIT_STOP, pdTRUE, pdTRUE, pdMS_TO_TICKS(50));
     TEST_ASSERT_EQUAL(TEST_MCPWM_TIMER_EVENT_BIT_STOP, bits);
 
+    printf("update timer period\r\n");
+    TEST_ESP_OK(mcpwm_timer_set_period(timer, 50 * 1000)); // period: 50ms, 20Hz
+    udata.accumulate_empty_counts = 0;
+    udata.accumulate_full_counts = 0;
+
+    printf("start timer\r\n");
+    TEST_ESP_OK(mcpwm_timer_start_stop(timer, MCPWM_TIMER_START_NO_STOP));
+
+    printf("wait for full and empty events\r\n");
+    bits = xEventGroupWaitBits(event_group, TEST_MCPWM_TIMER_EVENT_BIT_FULL | TEST_MCPWM_TIMER_EVENT_BIT_EMPTY, pdTRUE, pdTRUE, pdMS_TO_TICKS(1500));
+    // because the timer period changed, the previous wait time is not sufficient, so timeout
+    TEST_ASSERT_EQUAL(0, bits);
+
+    bits = xEventGroupWaitBits(event_group, TEST_MCPWM_TIMER_EVENT_BIT_FULL | TEST_MCPWM_TIMER_EVENT_BIT_EMPTY, pdTRUE, pdTRUE, pdMS_TO_TICKS(1500));
+    TEST_ASSERT_EQUAL(TEST_MCPWM_TIMER_EVENT_BIT_FULL | TEST_MCPWM_TIMER_EVENT_BIT_EMPTY, bits);
+
+    printf("stop timer\r\n");
+    TEST_ESP_OK(mcpwm_timer_start_stop(timer, MCPWM_TIMER_STOP_EMPTY));
     printf("disable timer\r\n");
     TEST_ESP_OK(mcpwm_timer_disable(timer));
-
     printf("delete timer\r\n");
     TEST_ESP_OK(mcpwm_del_timer(timer));
     vEventGroupDelete(event_group);

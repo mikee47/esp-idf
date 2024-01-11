@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -119,9 +119,9 @@
 #define SOC_CPU_INTR_NUM                32
 #define SOC_CPU_HAS_FPU                 1
 
-#define SOC_CPU_BREAKPOINTS_NUM         2
-#define SOC_CPU_WATCHPOINTS_NUM         2
-#define SOC_CPU_WATCHPOINT_SIZE         64 // bytes
+#define SOC_CPU_BREAKPOINTS_NUM             2
+#define SOC_CPU_WATCHPOINTS_NUM             2
+#define SOC_CPU_WATCHPOINT_MAX_REGION_SIZE  64 // bytes
 
 /*-------------------------- DIGITAL SIGNATURE CAPS ----------------------------------------*/
 /** The maximum length of a Digital Signature in bits. */
@@ -156,9 +156,6 @@
 #define SOC_GPIO_VALID_OUTPUT_GPIO_MASK  (SOC_GPIO_VALID_GPIO_MASK)
 // digital I/O pad powered by VDD3P3_CPU or VDD_SPI(GPIO_NUM_26~GPIO_NUM_48)
 #define SOC_GPIO_VALID_DIGITAL_IO_PAD_MASK 0x0001FFFFFC000000ULL
-
-// Support to configure slept status
-#define SOC_GPIO_SUPPORT_SLP_SWITCH  (1)
 
 
 /*-------------------------- Dedicated GPIO CAPS -----------------------------*/
@@ -336,7 +333,7 @@
 #define SOC_UART_REQUIRE_CORE_RESET (1)
 
 /*-------------------------- USB CAPS ----------------------------------------*/
-#define SOC_USB_PERIPH_NUM 1
+#define SOC_USB_OTG_PERIPH_NUM          (1U)
 
 
 /*--------------------------- SHA CAPS ---------------------------------------*/
@@ -380,20 +377,24 @@
 
 /*-------------------------- Power Management CAPS ---------------------------*/
 #define SOC_PM_SUPPORT_EXT_WAKEUP       (1)
-
 #define SOC_PM_SUPPORT_WIFI_WAKEUP      (1)
-
 #define SOC_PM_SUPPORT_BT_WAKEUP        (1)
-
-#define SOC_PM_SUPPORT_CPU_PD           (1)
-
-#define SOC_PM_SUPPORT_TAGMEM_PD        (1)
-
-#define SOC_PM_SUPPORT_RTC_PERIPH_PD      (1)
-
 #define SOC_PM_SUPPORT_TOUCH_SENSOR_WAKEUP    (1)     /*!<Supports waking up from touch pad trigger */
 
+#define SOC_PM_SUPPORT_CPU_PD           (1)
+#define SOC_PM_SUPPORT_TAGMEM_PD        (1)
+#define SOC_PM_SUPPORT_RTC_PERIPH_PD    (1)
+#define SOC_PM_SUPPORT_MODEM_PD         (1)     /*!<Modem here includes wifi and ble */
+
 #define SOC_PM_SUPPORT_DEEPSLEEP_CHECK_STUB_ONLY   (1)
+
+/*-------------------------- eFuse CAPS----------------------------*/
+#define SOC_EFUSE_DIS_DOWNLOAD_DCACHE 1
+#define SOC_EFUSE_HARD_DIS_JTAG 1
+#define SOC_EFUSE_DIS_USB_JTAG 1
+#define SOC_EFUSE_SOFT_DIS_JTAG 1
+#define SOC_EFUSE_DIS_DIRECT_BOOT 1
+#define SOC_EFUSE_BLOCK9_KEY_PURPOSE_QUIRK 1  // AES-XTS key purpose not supported for this block
 
 /*-------------------------- Secure Boot CAPS----------------------------*/
 #define SOC_SECURE_BOOT_V2_RSA              1
@@ -455,3 +456,5 @@
 /*---------------------------------- Bluetooth CAPS ----------------------------------*/
 #define SOC_BLE_SUPPORTED               (1)    /*!< Support Bluetooth Low Energy hardware */
 #define SOC_BLE_MESH_SUPPORTED          (1)    /*!< Support BLE MESH */
+#define SOC_BLE_50_SUPPORTED            (1)    /*!< Support Bluetooth 5.0 */
+#define SOC_BLE_DEVICE_PRIVACY_SUPPORTED (1)   /*!< Support BLE device privacy mode */

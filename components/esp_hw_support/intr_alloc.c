@@ -490,14 +490,7 @@ esp_err_t esp_intr_alloc_intrstatus(int source, int flags, uint32_t intrstatusre
     //ToDo: if we are to allow placing interrupt handlers into the 0x400c0000—0x400c2000 region,
     //we need to make sure the interrupt is connected to the CPU0.
     //CPU1 does not have access to the RTC fast memory through this region.
-    if ((flags & ESP_INTR_FLAG_IRAM)
-         && handler
-         && !esp_ptr_in_iram(handler)
-#if SOC_RTC_FAST_MEM_SUPPORTED
-        // IDF-3901.
-         && !esp_ptr_in_rtc_iram_fast(handler)
-#endif
-         ) {
+    if ((flags & ESP_INTR_FLAG_IRAM) && handler && !esp_ptr_in_iram(handler) && !esp_ptr_in_rtc_iram_fast(handler)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -559,7 +552,7 @@ esp_err_t esp_intr_alloc_intrstatus(int source, int flags, uint32_t intrstatusre
     //Allocate that int!
     if (flags & ESP_INTR_FLAG_SHARED) {
         //Populate vector entry and add to linked list.
-        shared_vector_desc_t *sh_vec=malloc(sizeof(shared_vector_desc_t));
+        shared_vector_desc_t *sh_vec = heap_caps_malloc(sizeof(shared_vector_desc_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         if (sh_vec == NULL) {
             portEXIT_CRITICAL(&spinlock);
             free(ret);
@@ -582,7 +575,7 @@ esp_err_t esp_intr_alloc_intrstatus(int source, int flags, uint32_t intrstatusre
         vd->flags = VECDESC_FL_NONSHARED;
         if (handler) {
 #if CONFIG_APPTRACE_SV_ENABLE
-            non_shared_isr_arg_t *ns_isr_arg=malloc(sizeof(non_shared_isr_arg_t));
+            non_shared_isr_arg_t *ns_isr_arg = heap_caps_malloc(sizeof(non_shared_isr_arg_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             if (!ns_isr_arg) {
                 portEXIT_CRITICAL(&spinlock);
                 free(ret);

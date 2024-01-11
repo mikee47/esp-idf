@@ -136,6 +136,9 @@ typedef struct {
     int                         keep_alive_interval; /*!< Keep-alive interval time. Default is 5 (second) */
     int                         keep_alive_count;    /*!< Keep-alive packet retry send count. Default is 3 counts */
     struct ifreq                *if_name;            /*!< The name of interface for data to go through. Use the default interface without setting */
+#if CONFIG_ESP_TLS_USE_DS_PERIPHERAL
+    void *ds_data;                          /*!< Pointer for digital signature peripheral context, see ESP-TLS Documentation for more details */
+#endif
 } esp_http_client_config_t;
 
 /**
@@ -519,6 +522,7 @@ esp_http_client_transport_t esp_http_client_get_transport_type(esp_http_client_h
  * @brief      Set redirection URL.
  *             When received the 30x code from the server, the client stores the redirect URL provided by the server.
  *             This function will set the current URL to redirect to enable client to execute the redirection request.
+ *             When `disable_auto_redirect` is set, the client will not call this function but the event `HTTP_EVENT_REDIRECT` will be dispatched giving the user contol over the redirection event.
  *
  * @param[in]  client  The esp_http_client handle
  *

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding=utf-8
 #
-# SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -198,8 +198,8 @@ CURRENT_PLATFORM = Platforms.get(PYTHON_PLATFORM)
 EXPORT_SHELL = 'shell'
 EXPORT_KEY_VALUE = 'key-value'
 
-# "DigiCert Global Root CA"
-DIGICERT_ROOT_CERT = u"""
+# the older "DigiCert Global Root CA" certificate used with github.com
+DIGICERT_ROOT_CA_CERT = """
 -----BEGIN CERTIFICATE-----
 MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh
 MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
@@ -223,6 +223,35 @@ YSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQk
 CAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=
 -----END CERTIFICATE-----
 """
+
+# the newer "DigiCert Global Root G2" certificate used with dl.espressif.com
+DIGICERT_ROOT_G2_CERT = """
+-----BEGIN CERTIFICATE-----
+MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH
+MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT
+MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j
+b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI
+2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx
+1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ
+q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz
+tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ
+vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo0IwQDAP
+BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV
+5uNu5g/6+rkS7QYXjzkwDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY
+1Yl9PMWLSn/pvtsrF9+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4
+NeF22d+mQrvHRAiGfzZ0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NG
+Fdtom/DzMNU+MeKNhJ7jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ91
+8rGOmaFvE7FBcf6IKshPECBV1/MUReXgRPTqh5Uykw7+U0b6LJ3/iyK5S9kJRaTe
+pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl
+MrY=
+-----END CERTIFICATE-----
+"""
+
+DL_CERT_DICT = {'dl.espressif.com': DIGICERT_ROOT_G2_CERT,
+                'github.com': DIGICERT_ROOT_CA_CERT}
 
 
 global_quiet = False
@@ -428,17 +457,15 @@ def download(url, destination):  # type: (str, str) -> Optional[Exception]
     info(f'Downloading {url}')
     info(f'Destination: {destination}')
     try:
-        ctx = None
-        # For dl.espressif.com and github.com, add the DigiCert root certificate.
-        # This works around the issue with outdated certificate stores in some installations.
-        if 'dl.espressif.com' in url or 'github.com' in url:
-            try:
+        for site, cert in DL_CERT_DICT.items():
+            # For dl.espressif.com and github.com, add the DigiCert root certificate.
+            # This works around the issue with outdated certificate stores in some installations.
+            if site in url:
                 ctx = ssl.create_default_context()
-                ctx.load_verify_locations(cadata=DIGICERT_ROOT_CERT)
-            except AttributeError:
-                # no ssl.create_default_context or load_verify_locations cadata argument
-                # in Python <=2.7.8
-                pass
+                ctx.load_verify_locations(cadata=cert)
+                break
+        else:
+            ctx = None
 
         urlretrieve_ctx(url, destination, report_progress if not global_non_interactive else None, context=ctx)
         sys.stdout.write('\rDone\n')
@@ -1145,7 +1172,7 @@ class IDFEnv:
                 if global_idf_tools_path:  # mypy fix for Optional[str] in the next call
                     # the directory doesn't exist if this is run on a clean system the first time
                     mkdir_p(global_idf_tools_path)
-                with open(idf_env_file_path, 'w') as w:
+                with open(idf_env_file_path, 'w', encoding='utf-8') as w:
                     info('Updating {}'.format(idf_env_file_path))
                     json.dump(dict(self), w, cls=IDFEnvEncoder, ensure_ascii=False, indent=4)  # type: ignore
             except (IOError, OSError):
@@ -1162,7 +1189,7 @@ class IDFEnv:
         idf_env_obj = cls()
         try:
             idf_env_file_path = os.path.join(global_idf_tools_path or '', IDF_ENV_FILE)
-            with open(idf_env_file_path, 'r') as idf_env_file:
+            with open(idf_env_file_path, 'r', encoding='utf-8') as idf_env_file:
                 idf_env_json = json.load(idf_env_file)
 
                 try:
@@ -1332,8 +1359,8 @@ def get_python_env_path() -> Tuple[str, str, str, str]:
     python_ver_major_minor = '{}.{}'.format(sys.version_info.major, sys.version_info.minor)
 
     idf_version = get_idf_version()
-    idf_python_env_path = os.path.join(global_idf_tools_path or '', 'python_env',
-                                       'idf{}_py{}_env'.format(idf_version, python_ver_major_minor))
+    idf_python_env_path = os.getenv('IDF_PYTHON_ENV_PATH') or os.path.join(global_idf_tools_path or '', 'python_env',
+                                                                           'idf{}_py{}_env'.format(idf_version, python_ver_major_minor))
 
     python_exe, subdir = get_python_exe_and_subdir()
     idf_python_export_path = os.path.join(idf_python_env_path, subdir)
@@ -1541,6 +1568,94 @@ def action_check(args):  # type: ignore
         raise SystemExit(1)
 
 
+# The following functions are used in process_tool which is a part of the action_export.
+def handle_recommended_version_to_use(
+    tool,
+    tool_name,
+    version_to_use,
+    prefer_system_hint,
+):  # type: (IDFTool, str, str, str) -> Tuple[list, dict]
+    tool_export_paths = tool.get_export_paths(version_to_use)
+    tool_export_vars = tool.get_export_vars(version_to_use)
+    if tool.version_in_path and tool.version_in_path not in tool.versions:
+        info('Not using an unsupported version of tool {} found in PATH: {}.'.format(
+            tool.name, tool.version_in_path) + prefer_system_hint, f=sys.stderr)
+    return tool_export_paths, tool_export_vars
+
+
+def handle_supported_or_deprecated_version(tool, tool_name):  # type: (IDFTool, str) -> None
+    version_obj: IDFToolVersion = tool.versions[tool.version_in_path]  # type: ignore
+    if version_obj.status == IDFToolVersion.STATUS_SUPPORTED:
+        info('Using a supported version of tool {} found in PATH: {}.'.format(tool_name, tool.version_in_path),
+             f=sys.stderr)
+        info('However the recommended version is {}.'.format(tool.get_recommended_version()),
+             f=sys.stderr)
+    elif version_obj.status == IDFToolVersion.STATUS_DEPRECATED:
+        warn('using a deprecated version of tool {} found in PATH: {}'.format(tool_name, tool.version_in_path))
+
+
+def handle_missing_versions(
+    tool,
+    tool_name,
+    install_cmd,
+    prefer_system_hint
+):  # type: (IDFTool, str, str, str) -> None
+    fatal('tool {} has no installed versions. Please run \'{}\' to install it.'.format(
+        tool.name, install_cmd))
+    if tool.version_in_path and tool.version_in_path not in tool.versions:
+        info('An unsupported version of tool {} was found in PATH: {}. '.format(tool_name, tool.version_in_path) +
+             prefer_system_hint, f=sys.stderr)
+
+
+def process_tool(
+    tool,
+    tool_name,
+    args,
+    install_cmd,
+    prefer_system_hint
+):  # type: (IDFTool, str, argparse.Namespace, str, str) -> Tuple[list, dict, bool]
+    tool_found: bool = True
+    tool_export_paths: List[str] = []
+    tool_export_vars: Dict[str, str] = {}
+
+    tool.find_installed_versions()
+    recommended_version_to_use = tool.get_preferred_installed_version()
+
+    if not tool.is_executable and recommended_version_to_use:
+        tool_export_vars = tool.get_export_vars(recommended_version_to_use)
+        return tool_export_paths, tool_export_vars, tool_found
+
+    if recommended_version_to_use and not args.prefer_system:
+        tool_export_paths, tool_export_vars = handle_recommended_version_to_use(
+            tool, tool_name, recommended_version_to_use, prefer_system_hint
+        )
+        return tool_export_paths, tool_export_vars, tool_found
+
+    if tool.version_in_path:
+        if tool.version_in_path not in tool.versions:
+            # unsupported version
+            if args.prefer_system:  # type: ignore
+                warn('using an unsupported version of tool {} found in PATH: {}'.format(
+                    tool.name, tool.version_in_path))
+                return tool_export_paths, tool_export_vars, tool_found
+            else:
+                # unsupported version in path
+                pass
+        else:
+            # supported/deprecated version in PATH, use it
+            handle_supported_or_deprecated_version(tool, tool_name)
+            return tool_export_paths, tool_export_vars, tool_found
+
+    if not tool.versions_installed:
+        if tool.get_install_type() == IDFTool.INSTALL_ALWAYS:
+            handle_missing_versions(tool, tool_name, install_cmd, prefer_system_hint)
+            tool_found = False
+        # If a tool found, but it is optional and does not have versions installed, use whatever is in PATH.
+        return tool_export_paths, tool_export_vars, tool_found
+
+    return tool_export_paths, tool_export_vars, tool_found
+
+
 def action_export(args):  # type: ignore
     if args.deactivate and different_idf_detected():
         deactivate_statement(args)
@@ -1560,58 +1675,10 @@ def action_export(args):  # type: ignore
     for name, tool in tools_info.items():
         if tool.get_install_type() == IDFTool.INSTALL_NEVER:
             continue
-        tool.find_installed_versions()
-        version_to_use = tool.get_preferred_installed_version()
-
-        if not tool.is_executable and version_to_use:
-            tool_export_vars = tool.get_export_vars(version_to_use)
-            export_vars = {**export_vars, **tool_export_vars}
-            continue
-
-        if tool.version_in_path:
-            if tool.version_in_path not in tool.versions:
-                # unsupported version
-                if args.prefer_system:  # type: ignore
-                    warn('using an unsupported version of tool {} found in PATH: {}'.format(
-                        tool.name, tool.version_in_path))
-                    continue
-                else:
-                    # unsupported version in path
-                    pass
-            else:
-                # supported/deprecated version in PATH, use it
-                version_obj = tool.versions[tool.version_in_path]
-                if version_obj.status == IDFToolVersion.STATUS_SUPPORTED:
-                    info('Using a supported version of tool {} found in PATH: {}.'.format(name, tool.version_in_path),
-                         f=sys.stderr)
-                    info('However the recommended version is {}.'.format(tool.get_recommended_version()),
-                         f=sys.stderr)
-                elif version_obj.status == IDFToolVersion.STATUS_DEPRECATED:
-                    warn('using a deprecated version of tool {} found in PATH: {}'.format(name, tool.version_in_path))
-                continue
-
-        if not tool.versions_installed:
-            if tool.get_install_type() == IDFTool.INSTALL_ALWAYS:
-                all_tools_found = False
-                fatal('tool {} has no installed versions. Please run \'{}\' to install it.'.format(
-                    tool.name, install_cmd))
-                if tool.version_in_path and tool.version_in_path not in tool.versions:
-                    info('An unsupported version of tool {} was found in PATH: {}. '.format(name, tool.version_in_path) +
-                         prefer_system_hint, f=sys.stderr)
-                continue
-            else:
-                # tool is optional, and does not have versions installed
-                # use whatever is available in PATH
-                continue
-
-        if tool.version_in_path and tool.version_in_path not in tool.versions:
-            info('Not using an unsupported version of tool {} found in PATH: {}.'.format(
-                 tool.name, tool.version_in_path) + prefer_system_hint, f=sys.stderr)
-
-        export_paths = tool.get_export_paths(version_to_use)
-        if export_paths:
-            paths_to_export += export_paths
-        tool_export_vars = tool.get_export_vars(version_to_use)
+        tool_export_paths, tool_export_vars, tool_found = process_tool(tool, name, args, install_cmd, prefer_system_hint)
+        if not tool_found:
+            all_tools_found = False
+        paths_to_export += tool_export_paths
         export_vars = {**export_vars, **tool_export_vars}
 
     current_path = os.getenv('PATH')

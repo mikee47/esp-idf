@@ -420,7 +420,7 @@ blecent_should_connect(const struct ble_gap_disc_desc *disc)
 
     rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
     if (rc != 0) {
-        return rc;
+        return 0;
     }
 
     if (strlen(CONFIG_EXAMPLE_PEER_ADDR) && (strncmp(CONFIG_EXAMPLE_PEER_ADDR, "ADDR_ANY", strlen("ADDR_ANY")) != 0)) {
@@ -723,7 +723,11 @@ app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    nimble_port_init();
+    ret = nimble_port_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(tag, "Failed to init nimble %d ", ret);
+        return;
+    }
 
     /* Configure the host. */
     ble_hs_cfg.reset_cb = blecent_on_reset;

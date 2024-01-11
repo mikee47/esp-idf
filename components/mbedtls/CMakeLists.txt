@@ -67,7 +67,7 @@ if(CONFIG_MBEDTLS_CERTIFICATE_BUNDLE)
 
     target_add_binary_data(${COMPONENT_LIB} ${crt_bundle} BINARY)
     set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
+        APPEND PROPERTY ADDITIONAL_CLEAN_FILES
         "${crt_bundle}")
 endif()
 
@@ -108,9 +108,13 @@ list(REMOVE_ITEM src_x509 x509_crt.c)
 set_property(TARGET mbedx509 PROPERTY SOURCES ${src_x509})
 endif()
 
+# Core libraries from the mbedTLS project
 set(mbedtls_targets mbedtls mbedcrypto mbedx509)
+# 3rd party libraries from the mbedTLS project
+list(APPEND mbedtls_targets everest p256m)
 
-set(mbedtls_target_sources "${COMPONENT_DIR}/port/mbedtls_debug.c")
+set(mbedtls_target_sources "${COMPONENT_DIR}/port/mbedtls_debug.c"
+                           "${COMPONENT_DIR}/port/esp_platform_time.c")
 
 if(CONFIG_MBEDTLS_DYNAMIC_BUFFER)
 set(mbedtls_target_sources ${mbedtls_target_sources}
@@ -118,6 +122,12 @@ set(mbedtls_target_sources ${mbedtls_target_sources}
                            "${COMPONENT_DIR}/port/dynamic/esp_ssl_cli.c"
                            "${COMPONENT_DIR}/port/dynamic/esp_ssl_srv.c"
                            "${COMPONENT_DIR}/port/dynamic/esp_ssl_tls.c")
+endif()
+
+# While updating to MbedTLS release/v3.4.0, building mbedtls/library/psa_crypto.c
+# clang produces an unreachable-code warning.
+if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+    target_compile_options(mbedcrypto PRIVATE "-Wno-unreachable-code")
 endif()
 
 # net_sockets.c should only be compiled if BSD socket functions are available.
@@ -230,6 +240,11 @@ endif()
 
 if(CONFIG_MBEDTLS_ROM_MD5)
     target_sources(mbedcrypto PRIVATE  "${COMPONENT_DIR}/port/md/esp_md.c")
+endif()
+
+if(CONFIG_MBEDTLS_USE_CRYPTO_ROM_IMPL)
+    target_sources(mbedcrypto PRIVATE  "${COMPONENT_DIR}/port/mbedtls_rom/mbedtls_rom_osi.c")
+    target_link_libraries(${COMPONENT_LIB} PRIVATE "-u mbedtls_rom_osi_functions_init")
 endif()
 
 foreach(target ${mbedtls_targets})

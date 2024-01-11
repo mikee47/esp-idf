@@ -39,6 +39,10 @@ This header contains various general purpose helper macros used across ESP-IDF
 #define CHOOSE_MACRO_VA_ARG_INN(one, two, MACRO1, MACRO2, ...) MACRO1
 #define CHOOSE_MACRO_VA_ARG(MACRO_WITH_ARGS, MACRO_WITH_NO_ARGS, ...) CHOOSE_MACRO_VA_ARG_INN(0, ##__VA_ARGS__, MACRO_WITH_ARGS, MACRO_WITH_NO_ARGS, 0)
 
+#ifndef ESP_UNUSED
+#define ESP_UNUSED(x) ((void)(x))
+#endif
+
 /* test macros */
 #define foo_args(...) 1
 #define foo_no_args() 2

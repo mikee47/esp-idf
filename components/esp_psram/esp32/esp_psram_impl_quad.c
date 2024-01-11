@@ -20,6 +20,7 @@
 #include "esp32/rom/spi_flash.h"
 #include "esp32/rom/cache.h"
 #include "esp32/rom/efuse.h"
+#include "esp32/rom/gpio.h"
 #include "esp_rom_efuse.h"
 #include "soc/dport_reg.h"
 #include "soc/efuse_periph.h"
@@ -28,6 +29,7 @@
 #include "soc/chip_revision.h"
 #include "driver/gpio.h"
 #include "hal/efuse_hal.h"
+#include "hal/efuse_ll.h"
 #include "hal/gpio_hal.h"
 #include "esp_private/spi_common_internal.h"
 #include "esp_private/periph_ctrl.h"
@@ -361,7 +363,7 @@ static int psram_cmd_config(psram_spi_num_t spi_num, psram_cmd_t* pInData)
         int len = (pInData->txDataBitLen + 31) / 32;
         if (p_tx_val != NULL) {
             for (int i = 0; i < len; i++) {
-                WRITE_PERI_REG(SPI_W0_REG(spi_num), p_tx_val[i]);
+                WRITE_PERI_REG(SPI_W0_REG(spi_num) + i * 4, p_tx_val[i]);
             }
         }
         // Set data send buffer length.Max data length 64 bytes.
@@ -823,7 +825,7 @@ esp_err_t IRAM_ATTR esp_psram_impl_enable(psram_vaddr_mode_t vaddrmode)   //psra
 {
     psram_cache_speed_t mode = PSRAM_SPEED;
     psram_io_t psram_io={0};
-    uint32_t pkg_ver = esp_efuse_get_pkg_ver();
+    uint32_t pkg_ver = efuse_ll_get_chip_ver_pkg();
     if (pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32D2WDQ5) {
         ESP_EARLY_LOGI(TAG, "This chip is ESP32-D2WD");
         rtc_vddsdio_config_t cfg = rtc_vddsdio_get_config();
@@ -836,14 +838,16 @@ esp_err_t IRAM_ATTR esp_psram_impl_enable(psram_vaddr_mode_t vaddrmode)   //psra
     } else if (pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32PICOD4 && ESP_CHIP_REV_ABOVE(efuse_hal_chip_revision(), 300)) {
         ESP_EARLY_LOGE(TAG, "This chip is ESP32-PICO-V3. It does not support PSRAM (disable it in Kconfig)");
         abort();
-    } else if ((pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32PICOD2) || (pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32PICOD4)) {
-        ESP_EARLY_LOGI(TAG, "This chip is ESP32-PICO");
+    } else if ((pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32PICOD4) || (pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32U4WDH)) {
+        ESP_EARLY_LOGI(TAG, "This chip is %s",
+                        (pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32PICOD4)? "ESP32-PICO": "ESP32-U4WDH");
+        // We have better alternatives, though it's possible to use U4WDH together with PSRAM.
+        // U4WDH shares the same pin config with PICO for historical reasons.
         rtc_vddsdio_config_t cfg = rtc_vddsdio_get_config();
         if (cfg.tieh != RTC_VDDSDIO_TIEH_3_3V) {
             ESP_EARLY_LOGE(TAG, "VDDSDIO is not 3.3V");
             return ESP_FAIL;
         }
-        s_clk_mode = PSRAM_CLK_MODE_NORM;
         psram_io.psram_clk_io = PICO_PSRAM_CLK_IO;
         psram_io.psram_cs_io  = PICO_PSRAM_CS_IO;
     } else if (pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32PICOV302) {
@@ -853,7 +857,6 @@ esp_err_t IRAM_ATTR esp_psram_impl_enable(psram_vaddr_mode_t vaddrmode)   //psra
             ESP_EARLY_LOGE(TAG, "VDDSDIO is not 3.3V");
             return ESP_FAIL;
         }
-        s_clk_mode = PSRAM_CLK_MODE_NORM;
         psram_io.psram_clk_io = PICO_V3_02_PSRAM_CLK_IO;
         psram_io.psram_cs_io  = PICO_V3_02_PSRAM_CS_IO;
     } else if ((pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32D0WDQ6) || (pkg_ver == EFUSE_RD_CHIP_VER_PKG_ESP32D0WDQ5)){
@@ -867,7 +870,6 @@ esp_err_t IRAM_ATTR esp_psram_impl_enable(psram_vaddr_mode_t vaddrmode)   //psra
             ESP_EARLY_LOGE(TAG, "VDDSDIO is not 3.3V");
             return ESP_FAIL;
         }
-        s_clk_mode = PSRAM_CLK_MODE_NORM;
         psram_io.psram_clk_io = D0WDR2_V3_PSRAM_CLK_IO;
         psram_io.psram_cs_io  = D0WDR2_V3_PSRAM_CS_IO;
     } else {
@@ -898,6 +900,12 @@ esp_err_t IRAM_ATTR esp_psram_impl_enable(psram_vaddr_mode_t vaddrmode)   //psra
         psram_io.psram_spid_sd1_io  = EFUSE_SPICONFIG_RET_SPID(spiconfig);
         psram_io.psram_spihd_sd2_io = EFUSE_SPICONFIG_RET_SPIHD(spiconfig);
         psram_io.psram_spiwp_sd3_io = bootloader_flash_get_wp_pin();
+    }
+
+    if (psram_io.flash_clk_io == psram_io.psram_clk_io) {
+        s_clk_mode = PSRAM_CLK_MODE_NORM;
+    } else {
+        s_clk_mode = PSRAM_CLK_MODE_DCLK;
     }
 
     assert(mode < PSRAM_CACHE_MAX && "we don't support any other mode for now.");
@@ -948,13 +956,16 @@ esp_err_t IRAM_ATTR esp_psram_impl_enable(psram_vaddr_mode_t vaddrmode)   //psra
          */
         psram_read_id(spi_num, &s_psram_id);
         if (!PSRAM_IS_VALID(s_psram_id)) {
-            ESP_EARLY_LOGE(TAG, "PSRAM ID read error: 0x%08x", (uint32_t)s_psram_id);
-            return ESP_FAIL;
+            ESP_EARLY_LOGE(TAG, "PSRAM ID read error: 0x%08x, PSRAM chip not found or not supported", (uint32_t)s_psram_id);
+            return ESP_ERR_NOT_SUPPORTED;
         }
     }
 
     if (psram_is_32mbit_ver0()) {
-        s_clk_mode = PSRAM_CLK_MODE_DCLK;
+        if (s_clk_mode != PSRAM_CLK_MODE_DCLK) {
+            ESP_EARLY_LOGE(TAG, "PSRAM rev0 can't share CLK with Flash");
+            abort();
+        }
         if (mode == PSRAM_CACHE_F80M_S80M) {
 #ifdef CONFIG_SPIRAM_OCCUPY_NO_HOST
             ESP_EARLY_LOGE(TAG, "This version of PSRAM needs to claim an extra SPI peripheral at 80MHz. Please either: choose lower frequency by SPIRAM_SPEED_, or select one SPI peripheral it by SPIRAM_OCCUPY_*SPI_HOST in the menuconfig.");

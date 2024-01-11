@@ -27,6 +27,8 @@ These third party libraries can be included into the application (firmware) prod
 
 * `wpa_supplicant`_ Copyright (c) 2003-2005 Jouni Malinen and licensed under the BSD license.
 
+* :component_file:`Fast PBKDF2 <wpa_supplicant/esp_supplicant/src/crypto/crypto_mbedtls.c>` Copyright (c) 2015 Joseph Birr-Pixton and licensed under CC0 Public Domain Dedication license.
+
 * `FreeBSD net80211`_ Copyright (c) 2004-2008 Sam Leffler, Errno Consulting and licensed under the BSD license.
 
 * `argtable3`_ argument parsing library Copyright (C) 1998-2001,2003-2011,2013 Stewart Heitmann and licensed under 3-clause BSD license. argtable3 also includes the following software components. For details, please see argtable3 :component_file:`LICENSE file<console/argtable3/LICENSE>`.
@@ -51,11 +53,11 @@ These third party libraries can be included into the application (firmware) prod
 
 * :component:`ESP-MQTT <mqtt>` MQTT Package (contiki-mqtt) - Copyright (c) 2014, Stephen Robinson, MQTT-ESP - Tuan PM <tuanpm at live dot com> is licensed under Apache License 2.0 as described in :component_file:`LICENSE file <mqtt/esp-mqtt/LICENSE>`.
 
-* :component:`BLE Mesh <bt/esp_ble_mesh>` is adapted from Zephyr Project, Copyright (c) 2017-2018 Intel Corporation and licensed under Apache License 2.0
+* :component:`BLE Mesh <bt/esp_ble_mesh>` is adapted from Zephyr Project, Copyright (c) 2017-2018 Intel Corporation and licensed under Apache License 2.0.
 
 * `mynewt-nimble`_ Apache Mynewt NimBLE, Copyright 2015-2018, The Apache Software Foundation, is licensed under Apache License 2.0 as described in :component_file:`LICENSE file<bt/host/nimble/nimble/LICENSE>`.
 
-* `TLSF allocator <https://github.com/espressif/tlsf>` Two Level Segregated Fit memory allocator, Copyright (c) 2006-2016, Matthew Conte, and licensed under the BSD 3-clause license.
+* `TLSF allocator <https://github.com/espressif/tlsf>`_ Two Level Segregated Fit memory allocator, Copyright (c) 2006-2016, Matthew Conte, and licensed under the BSD 3-clause license.
 
 * :component:`openthread`, Copyright (c) The OpenThread Authors, is licensed under BSD License as described in :component_file:`LICENSE file<openthread/openthread/LICENSE>`.
 
@@ -86,6 +88,17 @@ ESP32, ESP32-S and ESP32-C Series SoCs mask ROM hardware includes binaries compi
 * `wpa_supplicant`_ Copyright (c) 2003-2005 Jouni Malinen and licensed under the BSD license.
 
 * TJpgDec_ Copyright (C) 2011, ChaN, all right reserved. See below for license.
+
+* Parts of Zephyr RTOS USB stack:
+    * `DesignWare USB device driver`_ Copyright (c) 2016 Intel Corporation and licensed under Apache 2.0 license.
+    * `Generic USB device driver`_ Copyright (c) 2006 Bertrik Sikken (bertrik@sikken.nl), 2016 Intel Corporation and licensed under BSD 3-clause license.
+    * `USB descriptors functionality`_ Copyright (c) 2017 PHYTEC Messtechnik GmbH, 2017-2018 Intel Corporation and licensed under Apache 2.0 license.
+    * `USB DFU class driver`_ Copyright(c) 2015-2016 Intel Corporation, 2017 PHYTEC Messtechnik GmbH and licensed under BSD 3-clause license.
+    * `USB CDC ACM class driver`_ Copyright(c) 2015-2016 Intel Corporation and licensed under Apache 2.0 license
+
+.. only:: CONFIG_ESP_ROM_HAS_MBEDTLS_CRYPTO_LIB
+
+    * `Mbed TLS`_ library, Copyright (C) 2006-2018 ARM Limited and licensed under Apache 2.0 License.
 
 Xtensa libhal MIT License
 =========================
@@ -162,3 +175,8 @@ Copyright (C) 2011, ChaN, all right reserved.
 .. _sphinx_idf_theme: https://github.com/espressif/sphinx_idf_theme
 .. _sphinx_rtd_theme: https://github.com/readthedocs/sphinx_rtd_theme
 .. _SEGGER SystemView: https://www.segger.com/downloads/systemview/
+.. _DesignWare USB device driver: https://github.com/zephyrproject-rtos/zephyr/blob/v1.12-branch/drivers/usb/device/usb_dc_dw.c
+.. _Generic USB device driver: https://github.com/zephyrproject-rtos/zephyr/blob/v1.12-branch/subsys/usb/usb_device.c
+.. _USB descriptors functionality: https://github.com/zephyrproject-rtos/zephyr/blob/v1.12-branch/subsys/usb/usb_descriptor.c
+.. _USB DFU class driver: https://github.com/zephyrproject-rtos/zephyr/blob/v1.12-branch/subsys/usb/class/usb_dfu.c
+.. _USB CDC ACM class driver: https://github.com/zephyrproject-rtos/zephyr/blob/v1.12-branch/subsys/usb/class/cdc_acm.c

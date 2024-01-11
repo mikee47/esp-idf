@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -118,6 +118,7 @@ struct wpa_funcs {
     bool (*wpa_sta_init)(void);
     bool (*wpa_sta_deinit)(void);
     int (*wpa_sta_connect)(uint8_t *bssid);
+    void (*wpa_sta_connected_cb)(uint8_t *bssid);
     void (*wpa_sta_disconnected_cb)(uint8_t reason_code);
     int (*wpa_sta_rx_eapol)(u8 *src_addr, u8 *buf, u32 len);
     bool (*wpa_sta_in_4way_handshake)(void);
@@ -134,7 +135,7 @@ struct wpa_funcs {
     int (*wpa_michael_mic_failure)(u16 is_unicast);
     uint8_t *(*wpa3_build_sae_msg)(uint8_t *bssid, uint32_t type, size_t *len);
     int (*wpa3_parse_sae_msg)(uint8_t *buf, size_t len, uint32_t type, uint16_t status);
-    int (*wpa_sta_rx_mgmt)(u8 type, u8 *frame, size_t len, u8 *sender, u32 rssi, u8 channel, u64 current_tsf);
+    int (*wpa_sta_rx_mgmt)(u8 type, u8 *frame, size_t len, u8 *sender, int8_t rssi, u8 channel, u64 current_tsf);
     void (*wpa_config_done)(void);
     uint8_t *(*owe_build_dhie)(uint16_t group);
     int (*owe_process_assoc_resp)(const u8 *rsn_ie, size_t rsn_len, const uint8_t *dh_ie, size_t dh_len);
@@ -173,8 +174,8 @@ typedef enum wps_status {
     WPS_STATUS_MAX,
 } WPS_STATUS_t;
 
-#define WIFI_TXCB_EAPOL_ID  3
 typedef void(*wifi_tx_cb_t)(void *);
+typedef void(* eapol_txcb_t)(uint8_t *, size_t, bool);
 typedef int (*wifi_ipc_fn_t)(void *);
 typedef struct {
     wifi_ipc_fn_t fn;
@@ -235,6 +236,7 @@ bool esp_wifi_wpa_ptk_init_done_internal(uint8_t *mac);
 uint8_t esp_wifi_sta_set_reset_param_internal(uint8_t reset_flag);
 uint8_t esp_wifi_get_sta_gtk_index_internal(void);
 int esp_wifi_register_tx_cb_internal(wifi_tx_cb_t fn, u8 id);
+int esp_wifi_register_eapol_txdonecb_internal(eapol_txcb_t fn);
 int esp_wifi_register_wpa_cb_internal(struct wpa_funcs *cb);
 int esp_wifi_unregister_wpa_cb_internal(void);
 int esp_wifi_get_assoc_bssid_internal(uint8_t *bssid);
@@ -282,5 +284,7 @@ bool esp_wifi_is_ft_enabled_internal(uint8_t if_index);
 uint8_t esp_wifi_sta_get_config_sae_pwe_h2e_internal(void);
 uint8_t esp_wifi_sta_get_use_h2e_internal(void);
 void esp_wifi_sta_disable_wpa2_authmode_internal(void);
+uint8_t esp_wifi_ap_get_max_sta_conn(void);
+bool esp_wifi_eb_tx_status_success_internal(void *eb);
 
 #endif /* _ESP_WIFI_DRIVER_H_ */

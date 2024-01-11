@@ -207,7 +207,7 @@ menu "Memory Settings"
 
     config BT_LE_ACL_BUF_COUNT
         int "ACL Buffer count"
-        default 24
+        default 10
         help
             The number of ACL data buffers.
 
@@ -345,7 +345,7 @@ config BT_LE_MAX_CONNECTIONS
 choice BT_LE_COEX_PHY_CODED_TX_RX_TLIM
     prompt "Coexistence: limit on MAX Tx/Rx time for coded-PHY connection"
     default BT_LE_COEX_PHY_CODED_TX_RX_TLIM_DIS
-    depends on !BT_NIMBLE_ENABLED
+    depends on ESP32_WIFI_SW_COEXIST_ENABLE
     help
         When using PHY-Coded in BLE connection, limitation on max tx/rx time can be applied to
         better avoid dramatic performance deterioration of Wi-Fi.
@@ -363,7 +363,7 @@ endchoice
 
 config BT_LE_COEX_PHY_CODED_TX_RX_TLIM_EFF
     int
-    depends on !BT_NIMBLE_ENABLED
+    default 0 if !ESP32_WIFI_SW_COEXIST_ENABLE
     default 1 if BT_LE_COEX_PHY_CODED_TX_RX_TLIM_EN
     default 0 if BT_LE_COEX_PHY_CODED_TX_RX_TLIM_DIS
 
@@ -381,5 +381,11 @@ choice BT_LE_WAKEUP_SOURCE
         bool "Use ESP timer to wakeup CPU"
         help
             Use esp timer to wakeup CPU
-
 endchoice
+
+config BT_LE_USE_ESP_TIMER
+    bool "Use Esp Timer for callout"
+    depends on !BT_NIMBLE_ENABLED
+    default y
+    help
+        Set this option to use Esp Timer which has higher priority timer instead of FreeRTOS timer

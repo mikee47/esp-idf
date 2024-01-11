@@ -2,6 +2,7 @@ if(CONFIG_BT_ENABLED)
 
     set(srcs "")
     set(include_dirs "")
+    set(ldfragments "linker.lf")
 
     if(CONFIG_IDF_TARGET_ESP32)
         list(APPEND srcs "controller/esp32/bt.c"
@@ -14,14 +15,15 @@ if(CONFIG_BT_ENABLED)
         list(APPEND include_dirs include/esp32c3/include)
 
     elseif(CONFIG_IDF_TARGET_ESP32S3)
-        list(APPEND srcs "controller/esp32s3/bt.c")
-        list(APPEND include_dirs include/esp32s3/include)
+        list(APPEND srcs "controller/esp32c3/bt.c")
+        list(APPEND include_dirs include/esp32c3/include)
 
     elseif(CONFIG_IDF_TARGET_ESP32H2)
         list(APPEND srcs "controller/esp32h2/bt.c")
         list(APPEND include_dirs include/esp32h2/include)
 
     elseif(CONFIG_IDF_TARGET_ESP32C2)
+        set(ldfragments "linker.lf.esp32c2")
         list(APPEND srcs "controller/esp32c2/bt.c")
         list(APPEND include_dirs include/esp32c2/include)
     endif()
@@ -321,6 +323,7 @@ if(CONFIG_BT_ENABLED)
                    "host/bluedroid/stack/gatt/gatt_db.c"
                    "host/bluedroid/stack/gatt/gatt_main.c"
                    "host/bluedroid/stack/gatt/gatt_sr.c"
+                   "host/bluedroid/stack/gatt/gatt_sr_hash.c"
                    "host/bluedroid/stack/gatt/gatt_utils.c"
                    "host/bluedroid/stack/hcic/hciblecmds.c"
                    "host/bluedroid/stack/hcic/hcicmds.c"
@@ -522,6 +525,7 @@ if(CONFIG_BT_ENABLED)
                     host/nimble/nimble/nimble/host/services/dis/include
                     host/nimble/nimble/nimble/host/services/gap/include
                     host/nimble/nimble/nimble/host/services/gatt/include
+                    host/nimble/nimble/nimble/host/services/htp/include
                     host/nimble/nimble/nimble/host/services/ias/include
                     host/nimble/nimble/nimble/host/services/ipss/include
                     host/nimble/nimble/nimble/host/services/lls/include
@@ -537,6 +541,7 @@ if(CONFIG_BT_ENABLED)
                     "host/nimble/nimble/nimble/host/services/ias/src/ble_svc_ias.c"
                     "host/nimble/nimble/nimble/host/services/ipss/src/ble_svc_ipss.c"
                     "host/nimble/nimble/nimble/host/services/ans/src/ble_svc_ans.c"
+                    "host/nimble/nimble/nimble/host/services/htp/src/ble_svc_htp.c"
                     "host/nimble/nimble/nimble/host/services/gap/src/ble_svc_gap.c"
                     "host/nimble/nimble/nimble/host/services/bas/src/ble_svc_bas.c"
                     "host/nimble/nimble/nimble/host/services/dis/src/ble_svc_dis.c"
@@ -676,13 +681,12 @@ if(CONFIG_BT_ENABLED)
 
 endif()
 
-# requirements can't depend on config
 idf_component_register(SRCS "${srcs}"
                 INCLUDE_DIRS "${include_dirs}"
                 PRIV_INCLUDE_DIRS "${priv_include_dirs}"
                 REQUIRES esp_timer esp_wifi
                 PRIV_REQUIRES nvs_flash soc esp_pm esp_phy mbedtls driver vfs
-                LDFRAGMENTS "linker.lf")
+                LDFRAGMENTS "${ldfragments}")
 
 if(CONFIG_BT_ENABLED)
     target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-implicit-fallthrough -Wno-unused-const-variable)

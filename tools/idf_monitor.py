@@ -9,7 +9,7 @@
 # - If core dump output is detected, it is converted to a human-readable report
 #   by espcoredump.py.
 #
-# SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 #
 # Contains elements taken from miniterm "Very simple serial terminal" which
@@ -33,9 +33,8 @@ from builtins import bytes
 from typing import Any, List, Optional, Type, Union
 
 import serial
-import serial.tools.list_ports
 # Windows console stuff
-from idf_monitor_base.ansi_color_converter import get_converter
+from idf_monitor_base.ansi_color_converter import get_ansi_converter
 from idf_monitor_base.argument_parser import get_parser
 from idf_monitor_base.console_parser import ConsoleParser
 from idf_monitor_base.console_reader import ConsoleReader
@@ -53,7 +52,7 @@ from idf_monitor_base.output_helpers import normal_print, yellow_print
 from idf_monitor_base.serial_handler import SerialHandler, SerialHandlerNoElf, run_make
 from idf_monitor_base.serial_reader import LinuxReader, SerialReader
 from idf_monitor_base.web_socket_client import WebSocketClient
-from serial.tools import miniterm
+from serial.tools import list_ports, miniterm
 
 key_description = miniterm.key_description
 
@@ -91,9 +90,9 @@ class Monitor:
         self.cmd_queue = queue.Queue()  # type: queue.Queue
         self.console = miniterm.Console()
         # if the variable is set ANSI will be printed even if we do not print to terminal
-        sys.stderr = get_converter(sys.stderr, decode_output=True, force_color=force_color)
-        self.console.output = get_converter(self.console.output, force_color=force_color)
-        self.console.byte_output = get_converter(self.console.byte_output, force_color=force_color)
+        sys.stderr = get_ansi_converter(sys.stderr, force_color=force_color)  # type: ignore
+        self.console.output = get_ansi_converter(self.console.output, force_color=force_color)
+        self.console.byte_output = get_ansi_converter(self.console.byte_output, force_color=force_color)
 
         self.elf_file = elf_file or ''
         self.elf_exists = os.path.exists(self.elf_file)
@@ -290,6 +289,21 @@ def main() -> None:
     # The port name is changed in cases described in the following lines. Use a local argument and
     # avoid the modification of args.port.
     port = args.port
+
+    # if no port was set, detect connected ports and use one of them
+    if port is None:
+        try:
+            port_list = list_ports.comports()
+            port = port_list[-1].device
+            # keep the `/dev/ttyUSB0` default port on linux if connected
+            if sys.platform == 'linux':
+                for p in port_list:
+                    if p.device == '/dev/ttyUSB0':
+                        port = p.device
+                        break
+            yellow_print(f'--- Using autodetected port {port}')
+        except IndexError:
+            sys.exit('No serial ports detected.')
 
     # GDB uses CreateFile to open COM port, which requires the COM name to be r'\\.\COMx' if the COM
     # number is larger than 10

@@ -42,7 +42,6 @@ TEST_CASE("i80_and_i2s_driver_co-existence", "[lcd][i2s]")
     };
     TEST_ESP_OK(esp_lcd_new_i80_bus(&bus_config, &i80_bus));
 
-
     i2s_chan_handle_t tx_handle = NULL;
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     // I2S driver won't be installed as the same I2S port has been used by LCD
@@ -299,7 +298,7 @@ TEST_CASE("lcd_panel_i80_io_test", "[lcd]")
     esp_lcd_panel_handle_t panel_handle = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = TEST_LCD_RST_GPIO,
-        .rgb_endian = LCD_RGB_ENDIAN_RGB,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
     };
 
@@ -419,7 +418,7 @@ TEST_CASE("lcd_panel_with_i80_interface_(st7789, 8bits)", "[lcd]")
     esp_lcd_panel_handle_t panel_handle = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = TEST_LCD_RST_GPIO,
-        .rgb_endian = LCD_RGB_ENDIAN_RGB,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
     };
     TEST_ESP_OK(esp_lcd_new_panel_st7789(io_handle, &panel_config, &panel_handle));
@@ -452,4 +451,57 @@ TEST_CASE("lcd_panel_with_i80_interface_(st7789, 8bits)", "[lcd]")
     TEST_ESP_OK(gpio_reset_pin(TEST_LCD_BK_LIGHT_GPIO));
     free(img);
 #undef TEST_IMG_SIZE
+}
+
+TEST_CASE("i80_io_skip_command_phase", "[lcd]")
+{
+    esp_lcd_i80_bus_handle_t i80_bus = NULL;
+    esp_lcd_i80_bus_config_t bus_config = {
+        .dc_gpio_num = TEST_LCD_DC_GPIO,
+        .wr_gpio_num = TEST_LCD_PCLK_GPIO,
+        .clk_src = LCD_CLK_SRC_DEFAULT,
+        .data_gpio_nums = {
+            TEST_LCD_DATA0_GPIO,
+            TEST_LCD_DATA1_GPIO,
+            TEST_LCD_DATA2_GPIO,
+            TEST_LCD_DATA3_GPIO,
+            TEST_LCD_DATA4_GPIO,
+            TEST_LCD_DATA5_GPIO,
+            TEST_LCD_DATA6_GPIO,
+            TEST_LCD_DATA7_GPIO,
+        },
+        .bus_width = 8,
+        .max_transfer_bytes = 100,
+    };
+    esp_lcd_panel_io_handle_t io_handle = NULL;
+    esp_lcd_panel_io_i80_config_t io_config = {
+        .cs_gpio_num = TEST_LCD_CS_GPIO,
+        .pclk_hz = 5000000, // 5MHz
+        .trans_queue_depth = 10,
+        .dc_levels = {
+            .dc_idle_level = 0,
+            .dc_cmd_level = 0,
+            .dc_dummy_level = 0,
+            .dc_data_level = 1,
+        },
+        .lcd_cmd_bits = 8,
+        .lcd_param_bits = 8,
+    };
+
+    TEST_ESP_OK(esp_lcd_new_i80_bus(&bus_config, &i80_bus));
+    TEST_ESP_OK(esp_lcd_new_panel_io_i80(i80_bus, &io_config, &io_handle));
+
+    uint8_t buf[4] = {0x01, 0x02, 0x03, 0x04};
+    // lcd_cmd = -1 to skip the command phase
+    TEST_ESP_OK(esp_lcd_panel_io_tx_color(io_handle, -1, buf, 4));
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    TEST_ESP_OK(esp_lcd_panel_io_tx_param(io_handle, -1, buf, 4));
+
+    // use command phase
+    TEST_ESP_OK(esp_lcd_panel_io_tx_color(io_handle, 0x2C, buf, 4));
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    TEST_ESP_OK(esp_lcd_panel_io_tx_param(io_handle, 0x2A, buf, 4));
+
+    TEST_ESP_OK(esp_lcd_panel_io_del(io_handle));
+    TEST_ESP_OK(esp_lcd_del_i80_bus(i80_bus));
 }

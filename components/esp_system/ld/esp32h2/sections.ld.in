@@ -61,7 +61,7 @@ SECTIONS
 
     mapping[rtc_data]
 
-    *rtc_wake_stub*.*(.data .rodata .data.* .rodata.* .bss .bss.*)
+    *rtc_wake_stub*.*(.data .rodata .data.* .rodata.* .srodata.*)
     _rtc_data_end = ABSOLUTE(.);
   } > rtc_data_location
 
@@ -69,7 +69,7 @@ SECTIONS
   .rtc.bss (NOLOAD) :
   {
     _rtc_bss_start = ABSOLUTE(.);
-    *rtc_wake_stub*.*(.bss .bss.*)
+    *rtc_wake_stub*.*(.bss .bss.* .sbss .sbss.*)
     *rtc_wake_stub*.*(COMMON)
 
     mapping[rtc_bss]
@@ -106,6 +106,27 @@ SECTIONS
     . = ALIGN(4) ;
     _rtc_force_slow_end = ABSOLUTE(.);
   } > rtc_slow_seg
+
+  /**
+   * This section holds RTC data that should have fixed addresses.
+   * The data are not initialized at power-up and are retained during deep sleep.
+   */
+  .rtc_reserved (NOLOAD):
+  {
+    . = ALIGN(4);
+    _rtc_reserved_start = ABSOLUTE(.);
+    /* New data can only be added here to ensure existing data are not moved.
+       Because data have adhered to the end of the segment and code is relied on it.
+       >> put new data here << */
+
+    *(.rtc_timer_data_in_rtc_mem .rtc_timer_data_in_rtc_mem.*)
+    KEEP(*(.bootloader_data_rtc_mem .bootloader_data_rtc_mem.*))
+    _rtc_reserved_end = ABSOLUTE(.);
+  } > rtc_reserved_seg
+
+  _rtc_reserved_length = _rtc_reserved_end - _rtc_reserved_start;
+  ASSERT((_rtc_reserved_length <= LENGTH(rtc_reserved_seg)),
+          "RTC reserved segment data does not fit.")
 
   /* Get size of rtc slow data based on rtc_data_location alias */
   _rtc_slow_length = (ORIGIN(rtc_slow_seg) == ORIGIN(rtc_data_location))
@@ -210,7 +231,7 @@ SECTIONS
   .flash.text :
   {
     _stext = .;
-    _instruction_reserved_start = ABSOLUTE(.);
+    _instruction_reserved_start = ABSOLUTE(.); /* This is a symbol marking the flash.text start, this can be used for mmu driver to maintain virtual address */
     _text_start = ABSOLUTE(.);
 
     mapping[flash_text]
@@ -229,7 +250,7 @@ SECTIONS
     . += 16;
 
     _text_end = ABSOLUTE(.);
-    _instruction_reserved_end = ABSOLUTE(.);
+    _instruction_reserved_end = ABSOLUTE(.); /* This is a symbol marking the flash.text end, this can be used for mmu driver to maintain virtual address */
     _etext = .;
 
     /**
@@ -254,11 +275,11 @@ SECTIONS
     /* Prepare the alignment of the section above. Few bytes (0x20) must be
      * added for the mapping header. */
     . = ALIGN(0x10000) + 0x20;
-    _rodata_reserved_start = .;
   } > default_rodata_seg
 
   .flash.appdesc : ALIGN(0x10)
   {
+    _rodata_reserved_start = ABSOLUTE(.);  /* This is a symbol marking the flash.rodata start, this can be used for mmu driver to maintain virtual address */
     _rodata_start = ABSOLUTE(.);
 
     *(.rodata_desc .rodata_desc.*)               /* Should be the first.  App version info.        DO NOT PUT ANYTHING BEFORE IT! */
@@ -335,7 +356,6 @@ SECTIONS
     *(.tbss)
     *(.tbss.*)
     _thread_local_end = ABSOLUTE(.);
-    _rodata_reserved_end = ABSOLUTE(.);
     . = ALIGN(ALIGNOF(.eh_frame));
   } > default_rodata_seg
 
@@ -357,6 +377,20 @@ SECTIONS
     __eh_frame_hdr = ABSOLUTE(.);
     KEEP (*(.eh_frame_hdr))
     __eh_frame_hdr_end = ABSOLUTE(.);
+  } > default_rodata_seg
+
+  /*
+    This section is a place where we dump all the rodata which aren't used at runtime,
+    so as to avoid binary size increase
+  */
+  .flash.rodata_noload (NOLOAD) :
+  {
+    /*
+      This is a symbol marking the flash.rodata end, this can be used for mmu driver to maintain virtual address
+      We don't need to include the noload rodata in this section
+    */
+    _rodata_reserved_end = ABSOLUTE(.);
+    . = ALIGN (4);
   } > default_rodata_seg
 
   /* Marks the end of IRAM code segment */

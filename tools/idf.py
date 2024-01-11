@@ -38,13 +38,19 @@ import python_version_checker  # noqa: E402
 try:
     from idf_py_actions.errors import FatalError  # noqa: E402
     from idf_py_actions.tools import (PROG, SHELL_COMPLETE_RUN, SHELL_COMPLETE_VAR, PropertyDict,  # noqa: E402
-                                      debug_print_idf_version, get_target, merge_action_lists, print_warning, realpath)
+                                      debug_print_idf_version, get_target, merge_action_lists, print_warning)
     if os.getenv('IDF_COMPONENT_MANAGER') != '0':
         from idf_component_manager import idf_extensions
-except ImportError:
+except ImportError as e:
     # For example, importing click could cause this.
-    print('Please use idf.py only in an ESP-IDF shell environment.', file=sys.stderr)
-    raise
+    print((f'Cannot import module "{e.name}". This usually means that "idf.py" was not '
+           f'spawned within an ESP-IDF shell environment or the python virtual '
+           f'environment used by "idf.py" is corrupted.\n'
+           f'Please use idf.py only in an ESP-IDF shell environment. If problem persists, '
+           f'please try to install ESP-IDF tools again as described in the Get Started guide.'),
+          file=sys.stderr)
+
+    sys.exit(1)
 
 # Use this Python interpreter for any subprocesses we launch
 PYTHON = sys.executable
@@ -64,9 +70,9 @@ def check_environment() -> List:
 
     # verify that IDF_PATH env variable is set
     # find the directory idf.py is in, then the parent directory of this, and assume this is IDF_PATH
-    detected_idf_path = realpath(os.path.join(os.path.dirname(__file__), '..'))
+    detected_idf_path = os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))
     if 'IDF_PATH' in os.environ:
-        set_idf_path = realpath(os.environ['IDF_PATH'])
+        set_idf_path = os.path.realpath(os.environ['IDF_PATH'])
         if set_idf_path != detected_idf_path:
             print_warning(
                 'WARNING: IDF_PATH environment variable is set to %s but %s path indicates IDF directory %s. '
@@ -527,9 +533,14 @@ def init_cli(verbose_output: List=None) -> Any:
                         default = () if option.multiple else option.default
 
                         if global_value != default and local_value != default and global_value != local_value:
-                            raise FatalError(
-                                'Option "%s" provided for "%s" is already defined to a different value. '
-                                'This option can appear at most once in the command line.' % (key, task.name))
+                            if hasattr(option, 'envvar') and option.envvar and os.getenv(option.envvar) != default:
+                                msg = (f'This option cannot be set in command line if the {option.envvar} '
+                                       'environment variable is set to a different value.')
+                            else:
+                                msg = 'This option can appear at most once in the command line.'
+
+                            raise FatalError(f'Option "{key}" provided for "{task.name}" is already defined to '
+                                             f'a different value. {msg}')
                         if local_value != default:
                             global_args[key] = local_value
 
@@ -616,7 +627,7 @@ def init_cli(verbose_output: List=None) -> Any:
     )
     @click.option('-C', '--project-dir', default=os.getcwd(), type=click.Path())
     def parse_project_dir(project_dir: str) -> Any:
-        return realpath(project_dir)
+        return os.path.realpath(project_dir)
 
     # Set `complete_var` to not existing environment variable name to prevent early cmd completion
     project_dir = parse_project_dir(standalone_mode=False, complete_var='_IDF.PY_COMPLETE_NOT_EXISTING')
@@ -624,11 +635,11 @@ def init_cli(verbose_output: List=None) -> Any:
     all_actions: Dict = {}
     # Load extensions from components dir
     idf_py_extensions_path = os.path.join(os.environ['IDF_PATH'], 'tools', 'idf_py_actions')
-    extension_dirs = [realpath(idf_py_extensions_path)]
+    extension_dirs = [os.path.realpath(idf_py_extensions_path)]
     extra_paths = os.environ.get('IDF_EXTRA_ACTIONS_PATH')
     if extra_paths is not None:
         for path in extra_paths.split(';'):
-            path = realpath(path)
+            path = os.path.realpath(path)
             if path not in extension_dirs:
                 extension_dirs.append(path)
 
@@ -695,6 +706,12 @@ def main() -> None:
 
     # Check the environment only when idf.py is invoked regularly from command line.
     checks_output = None if SHELL_COMPLETE_RUN else check_environment()
+
+    # Check existance of the current working directory to prevent exceptions from click cli.
+    try:
+        os.getcwd()
+    except FileNotFoundError as e:
+        raise FatalError(f'ERROR: {e}. Working directory cannot be established. Check its existence.')
 
     try:
         cli = init_cli(verbose_output=checks_output)

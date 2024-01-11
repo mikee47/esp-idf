@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -71,7 +71,7 @@ esp_err_t esp_lcd_panel_io_rx_param(esp_lcd_panel_io_handle_t io, int lcd_cmd, v
  *       this function will wait until they are finished and the queue is empty before sending the command(s).
  *
  * @param[in] io LCD panel IO handle, which is created by other factory API like `esp_lcd_new_panel_io_spi()`
- * @param[in] lcd_cmd The specific LCD command (set to -1 if no command needed - only in SPI and I2C)
+ * @param[in] lcd_cmd The specific LCD command, set to -1 if no command needed
  * @param[in] param Buffer that holds the command specific parameters, set to NULL if no parameter is needed for the command
  * @param[in] param_size Size of `param` in memory, in bytes, set to zero if no parameter is needed for the command
  * @return
@@ -134,9 +134,12 @@ typedef struct {
     int lcd_cmd_bits;   /*!< Bit-width of LCD command */
     int lcd_param_bits; /*!< Bit-width of LCD parameter */
     struct {
-        unsigned int dc_low_on_data: 1;  /*!< If this flag is enabled, DC line = 0 means transfer data, DC line = 1 means transfer command; vice versa */
+        unsigned int dc_high_on_cmd: 1;  /*!< If enabled, DC level = 1 indicates command transfer */
+        unsigned int dc_low_on_data: 1;  /*!< If enabled, DC level = 0 indicates color data transfer */
+        unsigned int dc_low_on_param: 1; /*!< If enabled, DC level = 0 indicates parameter transfer */
         unsigned int octal_mode: 1;      /*!< transmit with octal mode (8 data lines), this mode is used to simulate Intel 8080 timing */
-        unsigned int sio_mode: 1; /*!< Read and write through a single data line (MOSI) */
+        unsigned int quad_mode: 1;       /*!< transmit with quad mode (4 data lines), this mode is useful when transmitting LCD parameters (Only use one line for command) */
+        unsigned int sio_mode: 1;        /*!< Read and write through a single data line (MOSI) */
         unsigned int lsb_first: 1;       /*!< transmit LSB bit first */
         unsigned int cs_high_active: 1;  /*!< CS line is high active */
     } flags; /*!< Extra flags to fine-tune the SPI device */

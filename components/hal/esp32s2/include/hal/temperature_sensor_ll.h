@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -21,6 +21,7 @@
 #include "soc/rtc_cntl_reg.h"
 #include "soc/sens_struct.h"
 #include "hal/temperature_sensor_types.h"
+#include "hal/misc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +30,8 @@ extern "C" {
 #define TEMPERATURE_SENSOR_LL_ADC_FACTOR     (0.4386)
 #define TEMPERATURE_SENSOR_LL_DAC_FACTOR     (27.88)
 #define TEMPERATURE_SENSOR_LL_OFFSET_FACTOR  (20.52)
+#define TEMPERATURE_SENSOR_LL_MEASURE_MAX    (125)
+#define TEMPERATURE_SENSOR_LL_MEASURE_MIN    (-40)
 
 /**
  * @brief Enable the temperature sensor power.
@@ -80,7 +83,7 @@ static inline uint32_t temperature_sensor_ll_get_raw_value(void)
     while (!SENS.sar_tctrl.tsens_ready) {
     }
     SENS.sar_tctrl.tsens_dump_out = 0;
-    return SENS.sar_tctrl.tsens_out;
+    return HAL_FORCE_READ_U32_REG_FIELD(SENS.sar_tctrl, tsens_out);
 }
 
 /**
@@ -104,7 +107,7 @@ static inline uint32_t temperature_sensor_ll_get_offset(void)
  */
 static inline uint32_t temperature_sensor_ll_get_clk_div(void)
 {
-    return SENS.sar_tctrl.tsens_clk_div;
+    return HAL_FORCE_READ_U32_REG_FIELD(SENS.sar_tctrl, tsens_clk_div);
 }
 
 /**
@@ -117,7 +120,7 @@ static inline uint32_t temperature_sensor_ll_get_clk_div(void)
  */
 static inline void temperature_sensor_ll_set_clk_div(uint8_t clk_div)
 {
-    SENS.sar_tctrl.tsens_clk_div = clk_div;
+    HAL_FORCE_MODIFY_U32_REG_FIELD(SENS.sar_tctrl, tsens_clk_div, clk_div);
 }
 
 #ifdef __cplusplus

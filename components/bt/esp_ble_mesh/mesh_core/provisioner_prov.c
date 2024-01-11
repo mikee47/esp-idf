@@ -19,6 +19,8 @@
 #include "provisioner_prov.h"
 #include "provisioner_main.h"
 
+#define PROV_SVC_ADV_RX_CHECK(pre, cur)   ((cur) < (pre) ? ((cur) + (UINT32_MAX - (pre)) >= 200) : ((cur) - (pre) >= 200))
+
 #if CONFIG_BLE_MESH_PROVISIONER
 
 _Static_assert(BLE_MESH_MAX_CONN >= CONFIG_BLE_MESH_PBG_SAME_TIME,
@@ -2725,7 +2727,8 @@ static void prov_retransmit(struct k_work *work)
 #endif
     if (k_uptime_get() - link[idx].tx.start > timeout) {
         BT_WARN("Provisioner timeout, giving up transaction");
-        reset_link(idx, CLOSE_REASON_TIMEOUT);
+        /* Provisioner should send Link Close here */
+        close_link(idx, CLOSE_REASON_TIMEOUT);
         return;
     }
 
@@ -2866,6 +2869,12 @@ static void prov_msg_recv(const uint8_t idx)
     return;
 
 fail:
+    /**
+     * For the case MESH/PVNR/PROV/BV-10-C and MESH/PVNR/PROV/BI-14-C,
+     * provisioner should send transaction ack before closing the link.
+     */
+    gen_prov_ack_send(idx, link[idx].rx.trans_id);
+
     close_link(idx, CLOSE_REASON_FAILED);
     return;
 }
@@ -3419,6 +3428,21 @@ int bt_mesh_provisioner_prov_deinit(bool erase)
 }
 #endif /* CONFIG_BLE_MESH_DEINIT */
 
+static bool bt_mesh_prov_svc_adv_filter(void)
+{
+    static uint32_t timestamp = 0;
+    static uint32_t pre_timestamp = 0;
+
+    timestamp = k_uptime_get_32();
+
+    if (PROV_SVC_ADV_RX_CHECK(pre_timestamp, timestamp)) {
+        pre_timestamp = timestamp;
+        return false;
+    }
+
+    return true;
+}
+
 static bool is_unprov_dev_info_callback_to_app(bt_mesh_prov_bearer_t bearer, const uint8_t uuid[16],
                                                const bt_mesh_addr_t *addr, uint16_t oob_info, int8_t rssi)
 {
@@ -3436,6 +3460,11 @@ static bool is_unprov_dev_info_callback_to_app(bt_mesh_prov_bearer_t bearer, con
 
         if (i == ARRAY_SIZE(unprov_dev)) {
             BT_DBG("Device not in queue, notify to app layer");
+
+            if (adv_type == BLE_MESH_ADV_IND && bt_mesh_prov_svc_adv_filter()) {
+                return true;
+            }
+
             if (notify_unprov_adv_pkt_cb) {
                 notify_unprov_adv_pkt_cb(addr->val, addr->type, adv_type, uuid, oob_info, bearer, rssi);
             }
@@ -3463,7 +3492,7 @@ void bt_mesh_provisioner_unprov_beacon_recv(struct net_buf_simple *buf, int8_t r
     uint16_t oob_info = 0U;
 
     if (!(prov_ctx.bearers & BLE_MESH_PROV_ADV)) {
-        BT_WARN("Not support PB-ADV bearer");
+        BT_INFO("Not support PB-ADV bearer");
         return;
     }
 
@@ -3499,7 +3528,7 @@ void bt_mesh_provisioner_prov_adv_recv(struct net_buf_simple *buf,
     uint16_t oob_info = 0U;
 
     if (!(prov_ctx.bearers & BLE_MESH_PROV_GATT)) {
-        BT_WARN("Not support PB-GATT bearer");
+        BT_INFO("Not support PB-GATT bearer");
         return;
     }
 

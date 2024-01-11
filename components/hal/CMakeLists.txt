@@ -11,7 +11,11 @@ if(NOT CONFIG_HAL_WDT_USE_ROM_IMPL)
     list(APPEND srcs "wdt_hal_iram.c")
 endif()
 
-if(NOT ${target} STREQUAL "esp32")
+# We wrap Cache ROM APIs as Cache HAL APIs for: 1. internal ram ; 2. unified APIs
+# ESP32 cache structure / ROM APIs are different and we have a patch `cache_hal_esp32.c` for it.
+if(${target} STREQUAL "esp32")
+    list(APPEND srcs "esp32/cache_hal_esp32.c")
+else()
     list(APPEND srcs "cache_hal.c")
 endif()
 
@@ -119,7 +123,7 @@ if(NOT BOOTLOADER_BUILD)
                     "esp32s2/cp_dma_hal.c"
                     "esp32s2/touch_sensor_hal.c"
                     "esp32s2/dac_hal.c"
-                    "usbh_hal.c")
+                    "usb_dwc_hal.c")
     endif()
 
     if(${target} STREQUAL "esp32s3")
@@ -136,7 +140,7 @@ if(NOT BOOTLOADER_BUILD)
             "esp32s3/hmac_hal.c"
             "esp32s3/touch_sensor_hal.c"
             "esp32s3/rtc_cntl_hal.c"
-            "usbh_hal.c")
+            "usb_dwc_hal.c")
     endif()
 
     if(${target} STREQUAL "esp32c3")

@@ -1242,7 +1242,7 @@ API :cpp:func:`esp_wifi_set_config()` 可用于配置 station。配置的参数�
    * - bssid
      - 只有当 bssid_set 为 1 时有效。见字段 “bssid_set”。
    * - channel
-     - 该字段为 0 时，station 扫描信道 1 ~ N 寻找目标 AP；否则，station 首先扫描值与 “channel” 字段相同的信道，再扫描其他信道。如果您不知道目标 AP 在哪个信道，请将该字段设置为 0。
+     - 该字段为 0 时，station 扫描信道 1 ~ N 寻找目标 AP；否则，station 首先扫描值与 “channel” 字段相同的信道，再扫描其他信道。比如，当该字段设置为 3 时，扫描顺序为 3，1，2，...，N 。如果您不知道目标 AP 在哪个信道，请将该字段设置为 0。
    * - sort_method
      - 该字段仅用于 WIFI_ALL_CHANNEL_SCAN 模式。
 
@@ -1620,7 +1620,7 @@ WPA2-Enterprise 是企业无线网络的安全认证机制。在连接到接入�
 
 请参考 IDF 示例程序 :idf_file:`examples/wifi/roaming/README.md` 来设置和使用这些 API。示例代码只演示了如何使用这些 API，应用程序应根据需要定义自己的算法和案例。
 
-.. only:: esp32s2 or esp32c3
+.. only:: SOC_WIFI_FTM_SUPPORT
 
     Wi-Fi Location
     -------------------------------
@@ -1646,6 +1646,8 @@ WPA2-Enterprise 是企业无线网络的安全认证机制。在连接到接入�
 {IDF_TARGET_NAME} Wi-Fi 节能模式
 -----------------------------------------
 
+本小节将简单介绍Wi-Fi节能模式相关的概念和使用方式，更加详细的介绍请参考 :doc:`低功耗模式使用指南 <../api-guides/low-power-mode>`。
+
 station 睡眠
 ++++++++++++++++++++++
 
@@ -1657,7 +1659,11 @@ Modem-sleep 模式包括最小和最大节能模式。在最小节能模式下�
 
 调用 :cpp:func:`esp_wifi_init()` 后，调用 ``esp_wifi_set_ps(WIFI_PS_MIN_MODEM)`` 可使能 Modem-sleep 最小节能模式。调用 ``esp_wifi_set_ps(WIFI_PS_MAX_MODEM)`` 可使能 Modem-sleep 最大节能模式。station 连接到 AP 时，Modem-sleep 模式将启动。station 与 AP 断开连接时，Modem-sleep 模式将停止。
 
-调用 ``esp_wifi_set_ps(WIFI_PS_NONE)`` 可以完全禁用 Modem-sleep 模式。禁用会增大功耗，但可以最大限度减少实时接收 Wi-Fi 数据的延迟。使能 Modem-sleep 时，接收 Wi-Fi 数据的延迟时间可能与 DTIM 周期（最小节能模式）或监听间隔（最大节能模式）相同。在 Wi-Fi 与 Bluetooth LE 共存模式下，无法完全禁用 modem-sleep 模式。
+调用 ``esp_wifi_set_ps(WIFI_PS_NONE)`` 可以完全禁用 Modem-sleep 模式。禁用会增大功耗，但可以最大限度减少实时接收 Wi-Fi 数据的延迟。使能 Modem-sleep 时，接收 Wi-Fi 数据的延迟时间可能与 DTIM 周期（最小节能模式）或监听间隔（最大节能模式）相同。
+
+.. only:: SOC_SUPPORT_COEXISTENCE
+
+    注意在共存模式下, 即使调用 ``esp_wifi_set_ps(WIFI_PS_NONE)``, Wi-Fi 也仅会在 Wi-Fi 时间片内保持活动状态, 非 Wi-Fi 时间片内仍然睡眠。请参照 :ref:`共存策略 <coexist_policy-cn>`。
 
 默认的 Modem-sleep 模式是 WIFI_PS_MIN_MODEM。
 
@@ -1975,7 +1981,7 @@ Wi-Fi 80211 数据包发送
        上述建议仅供避免副作用，在有充分理由的情况下可以忽略。
 
    * - 有 Wi-Fi 连接
-     - 当 Wi-Fi 已连接，且序列由应用程序控制，应用程序可能会影响整个 Wi-Fi 连接的序列控制。 因此，en_sys_seq 要为 true，否则将返回 ESP_ERR_WIFI_ARG。
+     - 当 Wi-Fi 已连接，且序列由应用程序控制，应用程序可能会影响整个 Wi-Fi 连接的序列控制。 因此，en_sys_seq 要为 true，否则将返回 ``ESP_ERR_INVALID_ARG``。
 
        “无 Wi-Fi 连接”情况下的 MAC 地址建议也适用于此情况。
 
@@ -1987,7 +1993,7 @@ Wi-Fi 80211 数据包发送
 
        - 如果数据包是从 station 发送到 AP，或从 AP 到 station，Power Management、More Data 和 Re-Transmission 位应该为 0，否则，Wi-Fi 驱动程序不接受该数据包。
 
-       如果任何检查失败，将返回 ESP_ERR_WIFI_ARG。
+       如果任何检查失败，将返回 ``ESP_ERR_INVALID_ARG``。
 
 
 Wi-Fi Sniffer 模式
@@ -2041,12 +2047,12 @@ Wi-Fi 多根天线
 有一些限制情况需要考虑：
 
  - 因为发送数据天线基于 WIFI_ANT_MODE_AUTO 类型的接收数据天线选择算法，只有接收数据的天线模式为 WIFI_ANT_MODE_AUTO 时，发送数据天线才能设置为 WIFI_ANT_MODE_AUTO。
+ - 接收或者发送天线模式配置为 WIFI_ANT_MODE_AUTO 时，只要存在 RF 信号的恶化，很容易触发天线切换。如果射频信号不稳定，天线会频繁切换，使得总的射频性能无法达到预期效果。
  - 目前，Bluetooth® 不支持多根天线功能，请不要使用与多根天线有关的 API。
 
 推荐在以下场景中使用多根天线：
 
- - Wi-Fi 模式 WIFI_MODE_STA 下，接收/发送数据的天线模式均配置为 WIFI_ANT_MODE_AUTO。Wi-Fi 驱动程序自动选择更好的接收/发送数据天线。
- - 接收数据天线模式配置为 WIFI_ANT_MODE_AUTO。发送数据的天线模式配置为 WIFI_ANT_MODE_ANT0 或 WIFI_ANT_MODE_ANT1。应用程序可以始终选择指定的天线用于发送数据，也可以执行自身发送数据天线选择算法，如根据信道切换信息选择发送数据的天线模式等。
+ - 应用程序可以始终选择指定的天线，也可以执行自身天线选择算法，如根据应用程序收集的信息来选择天线模式等。请参考 IDF 示例 :idf_file:`examples/wifi/antenna/README.md` 来设计天线选择算法。
  - 接收/发送数据的天线模式均配置为 WIFI_ANT_MODE_ANT0 或 WIFI_ANT_MODE_ANT1。
 
 
@@ -2057,9 +2063,9 @@ Wi-Fi 多根天线配置
 
  - 配置 antenna_selects 连接哪些 GPIOs，例如，如果支持四根天线，且 GPIO20/GPIO21 连接到 antenna_select[0]/antenna_select[1]，配置如下所示::
 
-     wifi_ant_gpio_config_t config = {
-         { .gpio_select = 1, .gpio_num = 20 },
-         { .gpio_select = 1, .gpio_num = 21 }
+     wifi_ant_gpio_config_t ant_gpio_config = {
+         .gpio_cfg[0] = { .gpio_select = 1, .gpio_num = 20 },
+         .gpio_cfg[1] = { .gpio_select = 1, .gpio_num = 21 }
      };
  - 配置使能哪些天线、以及接收/发送数据如何使用使能的天线，例如，如果使能了天线 1 和天线 3，接收数据需要自动选择较好的天线，并将天线 1 作为默认天线，发送数据始终选择天线 3。配置如下所示::
 
@@ -2193,7 +2199,14 @@ Wi-Fi 协议中定义了四个 AC （访问类别），每个 AC 有各自的优
 Wi-Fi AMSDU
 -------------------------
 
-{IDF_TARGET_NAME} 支持接收和发送 AMSDU。
+.. only:: not SOC_SPIRAM_SUPPORTED
+
+    {IDF_TARGET_NAME} 支持接收 AMSDU。
+
+.. only:: SOC_SPIRAM_SUPPORTED
+
+    {IDF_TARGET_NAME} 支持接收和发送 AMSDU。开启 AMSDU 发送比较消耗内存，默认不开启 AMSDU 发送。可通过选项 :ref:`CONFIG_ESP32_WIFI_AMSDU_TX_ENABLED` 使能 AMSDU 发送功能， 但是使能 AMSDU 发送依赖于 :ref:`CONFIG_SPIRAM` 。
+
 
 Wi-Fi 分片
 -------------------------
@@ -2875,7 +2888,7 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
      - **最小等级**
         {IDF_TARGET_NAME} 的最小配置等级。协议栈只使用运行所需的内存。适用于对性能没有要求，而应用程序需要大量内存的场景。
 
-.. only:: esp32 or esp32s2 or esp32s3
+.. only:: SOC_SPIRAM_SUPPORTED
 
     使用 PSRAM
     ++++++++++++++++++++++++++++
@@ -3455,6 +3468,7 @@ Wi-Fi AMPDU
 
 通常，应使能 AMPDU。禁用 AMPDU 通常用于调试目的。
 
+
 故障排除
 ---------------
 
@@ -3464,3 +3478,4 @@ Wi-Fi AMPDU
     :hidden:
 
     wireshark-user-guide
+

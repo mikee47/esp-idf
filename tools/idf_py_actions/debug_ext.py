@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 import json
 import os
@@ -164,9 +164,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                 print(f'Warning: {msg_body}')
                 return f'# {msg_body}'
             r = ['', f'# Load {target} ROM ELF symbols']
-            is_one_revision = len(roms[target]) == 1
-            if not is_one_revision:
-                r.append('define target hookpost-remote')
+            r.append('define target hookpost-remote')
             r.append('set confirm off')
             # Workaround for reading ROM data on xtensa chips
             # This should be deleted after the new openocd-esp release (newer than v0.11.0-esp32-20220706)
@@ -197,10 +195,9 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
             if target in xtensa_chips:
                 r.append('monitor xtensa set_permissive 0')
             r.append('set confirm on')
-            if not is_one_revision:
-                r.append('end')
+            r.append('end')
             r.append('')
-            return os.linesep.join(r)
+            return '\n'.join(r)
         raise FatalError(f'{ESP_ROM_INFO_FILE} file not found. Please check IDF integrity.')
 
     def generate_gdbinit_files(gdb: str, gdbinit: Optional[str], project_desc: Dict[str, Any]) -> None:
@@ -209,7 +206,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
             raise FatalError('ELF file not found. You need to build & flash the project before running debug targets')
 
         # Recreate empty 'gdbinit' directory
-        gdbinit_dir = os.path.join(project_desc['build_dir'], 'gdbinit')
+        gdbinit_dir = '/'.join([project_desc['build_dir'], 'gdbinit'])
         if os.path.isfile(gdbinit_dir):
             os.remove(gdbinit_dir)
         elif os.path.isdir(gdbinit_dir):
@@ -217,7 +214,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
         os.mkdir(gdbinit_dir)
 
         # Prepare gdbinit for Python GDB extensions import
-        py_extensions = os.path.join(gdbinit_dir, 'py_extensions')
+        py_extensions = '/'.join([gdbinit_dir, 'py_extensions'])
         with open(py_extensions, 'w') as f:
             if is_gdb_with_python(gdb):
                 f.write(GDBINIT_PYTHON_TEMPLATE.format(sys_path=sys.path))
@@ -225,7 +222,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                 f.write(GDBINIT_PYTHON_NOT_SUPPORTED)
 
         # Prepare gdbinit for related ELFs symbols load
-        symbols = os.path.join(gdbinit_dir, 'symbols')
+        symbols = '/'.join([gdbinit_dir, 'symbols'])
         with open(symbols, 'w') as f:
             boot_elf = get_normalized_path(project_desc['bootloader_elf']) if 'bootloader_elf' in project_desc else None
             if boot_elf and os.path.exists(boot_elf):
@@ -237,7 +234,7 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
 
         # Generate the gdbinit for target connect if no custom gdbinit is present
         if not gdbinit:
-            gdbinit = os.path.join(gdbinit_dir, 'connect')
+            gdbinit = '/'.join([gdbinit_dir, 'connect'])
             with open(gdbinit, 'w') as f:
                 f.write(GDBINIT_CONNECT)
 
@@ -399,11 +396,6 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
                 if task.name in ('gdb', 'gdbgui', 'gdbtui'):
                     task.action_args['require_openocd'] = True
 
-    def run_gdb(gdb_args: List) -> int:
-        p = subprocess.Popen(gdb_args)
-        processes['gdb'] = p
-        return p.wait()
-
     def gdbtui(action: str, ctx: Context, args: PropertyDict, gdbinit: str, require_openocd: bool) -> None:
         """
         Synchronous GDB target with text ui mode
@@ -425,11 +417,11 @@ def action_extensions(base_actions: Dict, project_path: str) -> Dict:
             args += ['-tui']
         if batch:
             args += ['--batch']
-        t = Thread(target=run_gdb, args=(args,))
-        t.start()
+        p = subprocess.Popen(args)
+        processes['gdb'] = p
         while True:
             try:
-                t.join()
+                p.wait()
                 break
             except KeyboardInterrupt:
                 # Catching Keyboard interrupt, as this is used for breaking running program in gdb

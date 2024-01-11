@@ -153,7 +153,18 @@ tinyusb:
     - 'examples/peripherals/usb/device/tusb_midi/'
   allowed_licenses:
     - Apache-2.0
-    - MIT
+    - MIT           # Example derived from TinyUSB code by HaThach
+    - Unlicense
+    - CC0-1.0
+
+# Portions of the USB stack in ROM are derived from Zephyr project,
+# with files licensed under a mix of Apache and BSD-3-Clause licenses.
+esp_rom_usb:
+  include:
+    - 'components/esp_rom/include/*/rom/usb/'
+  allowed_licenses:
+    - Apache-2.0
+    - BSD-3-Clause
 
 # files matching this section do not perform the check
 # file patterns starting with ! are negated, meaning files matching them won't match the section.
@@ -167,6 +178,7 @@ ignore:
     - components/http_parser/
     - components/wpa_supplicant/src/
     - '!components/wpa_supplicant/esp_supplicant/'
+    - components/wpa_supplicant/esp_supplicant/src/crypto/fastpbkdf2*
     - components/bt/host/bluedroid/
     - '!components/bt/host/bluedroid/api/'
     - '!components/bt/host/bluedroid/btc/'

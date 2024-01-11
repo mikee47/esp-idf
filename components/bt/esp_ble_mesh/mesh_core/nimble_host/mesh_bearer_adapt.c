@@ -1,7 +1,7 @@
 /*
  * SPDX-FileCopyrightText: 2017 Nordic Semiconductor ASA
  * SPDX-FileCopyrightText: 2015-2016 Intel Corporation
- * SPDX-FileContributor: 2018-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2018-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -88,7 +88,8 @@ int bt_mesh_host_init(void)
     int rc;
 
     if (init == true) {
-        return -EALREADY;
+        BT_WARN("Already initialized host for mesh!");
+        return 0;
     }
 
     rc = btc_init();
@@ -759,15 +760,17 @@ int bt_le_adv_start(const struct bt_mesh_adv_param *param,
                     const struct bt_mesh_adv_data *ad, size_t ad_len,
                     const struct bt_mesh_adv_data *sd, size_t sd_len)
 {
+    struct ble_gap_adv_params adv_params;
+    uint8_t buf[BLE_HS_ADV_MAX_SZ];
+    uint16_t interval = 0;
+    uint8_t buf_len = 0;
+    int err;
+
 #if BLE_MESH_DEV
     if (bt_mesh_atomic_test_bit(bt_mesh_dev.flags, BLE_MESH_DEV_ADVERTISING)) {
         return -EALREADY;
     }
 #endif
-    uint8_t buf[BLE_HS_ADV_MAX_SZ];
-    uint8_t buf_len = 0;
-    int err;
-    struct ble_gap_adv_params adv_params;
 
     err = set_ad(ad, ad_len, buf, &buf_len);
     if (err) {
@@ -798,8 +801,6 @@ int bt_le_adv_start(const struct bt_mesh_adv_param *param,
     }
 
     memset(&adv_params, 0, sizeof adv_params);
-    adv_params.itvl_min = param->interval_min;
-    adv_params.itvl_max = param->interval_max;
 
     if (param->options & BLE_MESH_ADV_OPT_CONNECTABLE) {
         adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
@@ -811,6 +812,25 @@ int bt_le_adv_start(const struct bt_mesh_adv_param *param,
         adv_params.conn_mode = BLE_GAP_CONN_MODE_NON;
         adv_params.disc_mode = BLE_GAP_DISC_MODE_NON;
     }
+
+    interval = param->interval_min;
+
+#if CONFIG_BLE_MESH_RANDOM_ADV_INTERVAL
+    /* If non-connectable mesh packets are transmitted with an adv interval
+     * not smaller than 10ms, then we will use a random adv interval between
+     * [interval / 2, interval] for them.
+     */
+    if (adv_params.conn_mode == BLE_GAP_CONN_MODE_NON &&
+        adv_params.disc_mode == BLE_GAP_DISC_MODE_NON && interval >= 16) {
+        interval >>= 1;
+        interval += (bt_mesh_get_rand() % (interval + 1));
+
+        BT_INFO("%u->%u", param->interval_min, interval);
+    }
+#endif
+
+    adv_params.itvl_min = interval;
+    adv_params.itvl_max = interval;
 
 again:
     err = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER, &adv_params,
@@ -1943,9 +1963,34 @@ int bt_mesh_encrypt_be(const uint8_t key[16], const uint8_t plaintext[16],
 }
 
 #if defined(CONFIG_BLE_MESH_USE_DUPLICATE_SCAN)
-int bt_mesh_update_exceptional_list(uint8_t sub_code, uint8_t type, void *info)
+int bt_mesh_update_exceptional_list(uint8_t sub_code, uint32_t type, void *info)
 {
-    BT_ERR("Unsupported for NimBLE host");
-    return 0;
+    uint8_t value[6] =  {0};
+    int rc = 0;
+
+    if ((sub_code > BLE_MESH_EXCEP_LIST_SUB_CODE_CLEAN) ||
+        (sub_code < BLE_MESH_EXCEP_LIST_SUB_CODE_CLEAN &&
+         type > BLE_MESH_EXCEP_LIST_TYPE_MESH_PROXY_ADV) ||
+        (sub_code == BLE_MESH_EXCEP_LIST_SUB_CODE_CLEAN &&
+         !(type & BLE_MESH_EXCEP_LIST_CLEAN_ALL_LIST))) {
+        BT_ERR("%s, Invalid parameter", __func__);
+        return -EINVAL;
+   }
+
+    if (type == BLE_MESH_EXCEP_LIST_TYPE_MESH_LINK_ID) {
+        if (!info) {
+            BT_ERR("Invalid Provisioning Link ID");
+            return -EINVAL;
+        }
+        sys_memcpy_swap(value, info, sizeof(uint32_t));
+    }
+
+    BT_DBG("%s exceptional list, type 0x%08x", sub_code ? "Remove" : "Add", type);
+
+#if MYNEWT_VAL(BLE_HCI_VS)
+    rc = ble_gap_duplicate_exception_list(sub_code, type, value, NULL);
+#endif
+
+    return rc;
 }
 #endif

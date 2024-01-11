@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -57,6 +57,7 @@ const static char *TAG = "NimBLE";
 
 int os_msys_buf_alloc(void);
 void os_msys_buf_free(void);
+extern uint8_t ble_hs_enabled_state;
 
 void ble_hci_trans_cfg_hs(ble_hci_trans_rx_cmd_fn *cmd_cb,
                      void *cmd_arg,
@@ -240,19 +241,23 @@ static struct os_mbuf *ble_hci_trans_acl_buf_alloc(void)
 
 static void ble_hci_rx_acl(uint8_t *data, uint16_t len)
 {
-    struct os_mbuf *m;
+    struct os_mbuf *m = NULL;
     int rc;
     int sr;
     if (len < BLE_HCI_DATA_HDR_SZ || len > MYNEWT_VAL(BLE_ACL_BUF_SIZE)) {
         return;
     }
 
-    m = ble_hci_trans_acl_buf_alloc();
+    do {
+        m = ble_hci_trans_acl_buf_alloc();
 
-    if (!m) {
-        ESP_LOGE(TAG, "%s failed to allocate ACL buffers; increase ACL_BUF_COUNT", __func__);
-        return;
-    }
+        if (!m) {
+            ESP_LOGD(TAG,"Failed to allocate buffer, retrying \n");
+	    /* Give some time to free buffer and try again */
+	    vTaskDelay(1);
+	}
+    }while(!m);
+
     if ((rc = os_mbuf_append(m, data, len)) != 0) {
         ESP_LOGE(TAG, "%s failed to os_mbuf_append; rc = %d", __func__, rc);
         os_mbuf_free_chain(m);
@@ -329,6 +334,11 @@ static void controller_rcv_pkt_ready(void)
  */
 static int host_rcv_pkt(uint8_t *data, uint16_t len)
 {
+    if(!ble_hs_enabled_state) {
+        /* If host is not enabled, drop the packet */
+        ESP_LOGE(TAG, "Host not enabled. Dropping the packet!");
+        return 0;
+    }
 
     if (data[0] == BLE_HCI_UART_H4_EVT) {
         uint8_t *evbuf;
@@ -362,6 +372,7 @@ static int host_rcv_pkt(uint8_t *data, uint16_t len)
             assert(evbuf != NULL);
         }
 
+        memset(evbuf, 0, sizeof *evbuf);
         memcpy(evbuf, &data[1], totlen);
 
         rc = ble_hci_trans_ll_evt_tx(evbuf);
@@ -441,6 +452,10 @@ esp_err_t esp_nimble_hci_init(void)
 
     xSemaphoreGive(vhci_send_sem);
 
+#if MYNEWT_VAL(BLE_QUEUE_CONG_CHECK)
+    ble_adv_list_init();
+#endif
+
     return ret;
 err:
     ble_buf_free();
@@ -482,6 +497,10 @@ esp_err_t esp_nimble_hci_deinit(void)
     }
 
     ble_buf_free();
+
+#if MYNEWT_VAL(BLE_QUEUE_CONG_CHECK)
+    ble_adv_list_deinit();
+#endif
 
     return ESP_OK;
 }

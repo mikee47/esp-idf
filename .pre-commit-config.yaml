@@ -1,6 +1,8 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 
+default_stages: [commit]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.0.1
@@ -36,7 +38,7 @@ repos:
       - id: flake8
         args: ['--config=.flake8', '--tee', '--benchmark']
   - repo: https://github.com/pycqa/isort
-    rev: 5.9.3
+    rev: 5.11.5  # python 3.7 compatible
     hooks:
       - id: isort
         name: isort (python)
@@ -141,6 +143,7 @@ repos:
         name: Check if all apps readme files match given .build-test-rules.yml files. Modify the supported target tables
         entry: tools/ci/check_build_test_rules.py check-readmes
         language: python
+        require_serial: true
         files: 'tools/test_apps/.+|examples/.+|components/.+'
         additional_dependencies:
           - idf_build_apps
@@ -157,7 +160,12 @@ repos:
       - id: file-contents-sorter
         files: 'tools\/ci\/(executable-list\.txt|mypy_ignore_list\.txt|check_copyright_ignore\.txt)'
   - repo: https://github.com/espressif/check-copyright/
-    rev: v1.0.1
+    rev: v1.0.3
     hooks:
       - id: check-copyright
         args: ['--ignore', 'tools/ci/check_copyright_ignore.txt', '--config', 'tools/ci/check_copyright_config.yaml']
+  - repo: https://github.com/espressif/esp-idf-sbom.git
+    rev: v0.13.0
+    hooks:
+      - id: validate-sbom-manifest
+        stages: [post-commit]

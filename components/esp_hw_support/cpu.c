@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -395,11 +395,13 @@ extern int _data_start;
 #define CONDITIONAL_NONE        0x0
 #define CONDITIONAL_RX          PMP_R | PMP_X
 #define CONDITIONAL_RW          PMP_R | PMP_W
+#define CONDITIONAL_RWX         PMP_R | PMP_W | PMP_X
 #else
 // With L bit set
 #define CONDITIONAL_NONE        NONE
 #define CONDITIONAL_RX          RX
 #define CONDITIONAL_RW          RW
+#define CONDITIONAL_RWX         RWX
 #endif
 
 void esp_cpu_configure_region_protection(void)
@@ -466,7 +468,12 @@ void esp_cpu_configure_region_protection(void)
     } else {
         // 1. IRAM
         PMP_ENTRY_SET(0, SOC_DIRAM_IRAM_LOW, CONDITIONAL_NONE);
+
+#if CONFIG_ESP_SYSTEM_PMP_IDRAM_SPLIT
         PMP_ENTRY_SET(1, IRAM_END, PMP_TOR | CONDITIONAL_RX);
+#else
+        PMP_ENTRY_SET(1, IRAM_END, PMP_TOR | CONDITIONAL_RWX);
+#endif
 
         // 2. DRAM
         PMP_ENTRY_SET(2, DRAM_START, CONDITIONAL_NONE);
@@ -532,8 +539,9 @@ esp_err_t esp_cpu_set_breakpoint(int bp_num, const void *bp_addr)
         if (ret == 0) {
             return ESP_ERR_INVALID_RESPONSE;
         }
-    }
-    rv_utils_set_breakpoint(bp_num, (uint32_t)bp_addr);
+    } else {
+        rv_utils_set_breakpoint(bp_num, (uint32_t)bp_addr);
+	}
 #endif // __XTENSA__
     return ESP_OK;
 }
@@ -554,8 +562,9 @@ esp_err_t esp_cpu_clear_breakpoint(int bp_num)
         if (ret == 0) {
             return ESP_ERR_INVALID_RESPONSE;
         }
-    }
-    rv_utils_clear_breakpoint(bp_num);
+    } else {
+        rv_utils_clear_breakpoint(bp_num);
+	}
 #endif // __XTENSA__
     return ESP_OK;
 }
@@ -566,11 +575,19 @@ esp_err_t esp_cpu_set_watchpoint(int wp_num, const void *wp_addr, size_t size, e
 {
     /*
     Todo:
-    - Check that wp_num is in range
     - Check if the wp_num is already in use
     */
-    // Check if size is 2^n, where n is in [0...6]
-    if (size < 1 || size > 64 || (size & (size - 1)) != 0) {
+    if (wp_num < 0 || wp_num >= SOC_CPU_WATCHPOINTS_NUM) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Check that the watched region's start address is naturally aligned to the size of the region
+    if ((uint32_t)wp_addr % size) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Check if size is 2^n, and size is in the range of [1 ... SOC_CPU_WATCHPOINT_MAX_REGION_SIZE]
+    if (size < 1 || size > SOC_CPU_WATCHPOINT_MAX_REGION_SIZE || (size & (size - 1)) != 0) {
         return ESP_ERR_INVALID_ARG;
     }
     bool on_read = (trigger == ESP_CPU_WATCHPOINT_LOAD || trigger == ESP_CPU_WATCHPOINT_ACCESS);
@@ -587,8 +604,9 @@ esp_err_t esp_cpu_set_watchpoint(int wp_num, const void *wp_addr, size_t size, e
         if (ret == 0) {
             return ESP_ERR_INVALID_RESPONSE;
         }
-    }
-    rv_utils_set_watchpoint(wp_num, (uint32_t)wp_addr, size, on_read, on_write);
+    } else {
+        rv_utils_set_watchpoint(wp_num, (uint32_t)wp_addr, size, on_read, on_write);
+	}
 #endif // __XTENSA__
     return ESP_OK;
 }
@@ -609,8 +627,9 @@ esp_err_t esp_cpu_clear_watchpoint(int wp_num)
         if (ret == 0) {
             return ESP_ERR_INVALID_RESPONSE;
         }
-    }
-    rv_utils_clear_watchpoint(wp_num);
+    } else {
+        rv_utils_clear_watchpoint(wp_num);
+	}
 #endif // __XTENSA__
     return ESP_OK;
 }

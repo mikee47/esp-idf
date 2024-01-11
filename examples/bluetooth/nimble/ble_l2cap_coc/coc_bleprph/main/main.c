@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
@@ -30,15 +30,16 @@ static uint8_t own_addr_type;
 
 void ble_store_config_init(void);
 
-#if CONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM > 1
+#if MYNEWT_VAL(BLE_L2CAP_COC_MAX_NUM) >= 1
 
-#define COC_BUF_COUNT         (3 * MYNEWT_VAL(BLE_L2CAP_COC_MAX_NUM))
+#define COC_BUF_COUNT         (20 * MYNEWT_VAL(BLE_L2CAP_COC_MAX_NUM))
+#define MTU                    512
 
-static uint16_t mtu = 512;
 uint16_t psm = 0x1002;
-static os_membuf_t sdu_coc_mem[OS_MEMPOOL_SIZE(COC_BUF_COUNT, 500)];
+static os_membuf_t sdu_coc_mem[OS_MEMPOOL_SIZE(COC_BUF_COUNT, MTU)];
 static struct os_mempool sdu_coc_mbuf_mempool;
 static struct os_mbuf_pool sdu_os_mbuf_pool;
+static uint16_t peer_sdu_size;
 #endif
 
 /**
@@ -191,10 +192,10 @@ bleprph_advertise(void)
 }
 #endif
 
-#if CONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM > 1
+#if MYNEWT_VAL(BLE_L2CAP_COC_MAX_NUM) >= 1
 static int
 bleprph_l2cap_coc_accept(uint16_t conn_handle, uint16_t peer_mtu,
-                           struct ble_l2cap_chan *chan)
+                         struct ble_l2cap_chan *chan)
 {
     struct os_mbuf *sdu_rx;
 
@@ -226,63 +227,68 @@ bleprph_l2cap_coc_accept(uint16_t conn_handle, uint16_t peer_mtu,
 static int
 bleprph_l2cap_coc_event_cb(struct ble_l2cap_event *event, void *arg)
 {
-     struct ble_l2cap_chan_info chan_info;
+    struct ble_l2cap_chan_info chan_info;
 
-     switch(event->type) {
-         case BLE_L2CAP_EVENT_COC_CONNECTED:
-             if (event->connect.status) {
-                 console_printf("LE COC error: %d\n", event->connect.status);
-                 return 0;
-             }
+    switch (event->type) {
+    case BLE_L2CAP_EVENT_COC_CONNECTED:
+        if (event->connect.status) {
+            console_printf("LE COC error: %d\n", event->connect.status);
+            return 0;
+        }
 
-             if (ble_l2cap_get_chan_info(event->connect.chan, &chan_info)) {
-                 assert(0);
-             }
+        if (ble_l2cap_get_chan_info(event->connect.chan, &chan_info)) {
+            assert(0);
+        }
 
-             console_printf("LE COC connected, conn: %d, chan: %p, psm: 0x%02x,"
-			    " scid: 0x%04x, ""dcid: 0x%04x, our_mps: %d, our_mtu: %d,"
-			    " peer_mps: %d, peer_mtu: %d\n",
-                            event->connect.conn_handle, event->connect.chan,
-                            chan_info.psm, chan_info.scid, chan_info.dcid,
-                            chan_info.our_l2cap_mtu, chan_info.our_coc_mtu,
-			    chan_info.peer_l2cap_mtu, chan_info.peer_coc_mtu);
+        console_printf("LE COC connected, conn: %d, chan: %p, psm: 0x%02x,"
+                       " scid: 0x%04x, ""dcid: 0x%04x, our_mps: %d, our_mtu: %d,"
+                       " peer_mps: %d, peer_mtu: %d\n",
+                       event->connect.conn_handle, event->connect.chan,
+                       chan_info.psm, chan_info.scid, chan_info.dcid,
+                       chan_info.our_l2cap_mtu, chan_info.our_coc_mtu,
+                       chan_info.peer_l2cap_mtu, chan_info.peer_coc_mtu);
 
-             return 0;
+        return 0;
 
-         case BLE_L2CAP_EVENT_COC_DISCONNECTED:
-             console_printf("LE CoC disconnected, chan: %p\n",
-                            event->disconnect.chan);
+    case BLE_L2CAP_EVENT_COC_DISCONNECTED:
+        console_printf("LE CoC disconnected, chan: %p\n",
+                       event->disconnect.chan);
 
-             return 0;
+        return 0;
 
-         case BLE_L2CAP_EVENT_COC_DATA_RECEIVED:
-	         if (event->receive.sdu_rx != NULL) {
-	             MODLOG_DFLT(INFO, "Data received : ");
-		         for (int i = 0; i < event->receive.sdu_rx->om_len; i++) {
-		             console_printf("%d ", event->receive.sdu_rx->om_data[i]);
-		         }
-	         }
-	         fflush(stdout);
-             return 0;
+    case BLE_L2CAP_EVENT_COC_DATA_RECEIVED:
+        if (event->receive.sdu_rx != NULL) {
+            MODLOG_DFLT(INFO, "Data received : ");
+            for (int i = 0; i < event->receive.sdu_rx->om_len; i++) {
+                console_printf("%d ", event->receive.sdu_rx->om_data[i]);
+            }
+            os_mbuf_free(event->receive.sdu_rx);
+        }
+        fflush(stdout);
+        bleprph_l2cap_coc_accept(event->receive.conn_handle,
+                                 peer_sdu_size,
+                                 event->receive.chan);
+        return 0;
 
-         case BLE_L2CAP_EVENT_COC_ACCEPT:
-             bleprph_l2cap_coc_accept(event->accept.conn_handle,
-                                      event->accept.peer_sdu_size,
-                                      event->accept.chan);
-             return 0;
+    case BLE_L2CAP_EVENT_COC_ACCEPT:
+        peer_sdu_size = event->accept.peer_sdu_size;
+        bleprph_l2cap_coc_accept(event->accept.conn_handle,
+                                 event->accept.peer_sdu_size,
+                                 event->accept.chan);
+        return 0;
 
-         default:
-             return 0;
-         }
+    default:
+        return 0;
+    }
 }
 static void
 bleprph_l2cap_coc_mem_init(void)
 {
     int rc;
-    rc = os_mempool_init(&sdu_coc_mbuf_mempool, COC_BUF_COUNT, mtu, sdu_coc_mem,
+    rc = os_mempool_init(&sdu_coc_mbuf_mempool, COC_BUF_COUNT, MTU, sdu_coc_mem,
                          "coc_sdu_pool");
     assert(rc == 0);
-    rc = os_mbuf_pool_init(&sdu_os_mbuf_pool, &sdu_coc_mbuf_mempool, mtu,
+    rc = os_mbuf_pool_init(&sdu_os_mbuf_pool, &sdu_coc_mbuf_mempool, MTU,
                            COC_BUF_COUNT);
     assert(rc == 0);
 }
@@ -326,18 +332,18 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
         if (event->connect.status != 0) {
             /* Connection failed; resume advertising. */
 #if CONFIG_EXAMPLE_EXTENDED_ADV
-	    ext_bleprph_advertise();
+            ext_bleprph_advertise();
 #else
             bleprph_advertise();
 #endif
         } else {
-	    rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
-	    assert(rc == 0);
-	    bleprph_print_conn_desc(&desc);
-#if CONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM > 1
-	    rc = ble_l2cap_create_server(psm, mtu, bleprph_l2cap_coc_event_cb, NULL);
+            rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
+            assert(rc == 0);
+            bleprph_print_conn_desc(&desc);
+#if MYNEWT_VAL(BLE_L2CAP_COC_MAX_NUM) >= 1
+            rc = ble_l2cap_create_server(psm, MTU, bleprph_l2cap_coc_event_cb, NULL);
 #endif
-	}
+        }
         return 0;
 
     case BLE_GAP_EVENT_DISCONNECT:
@@ -347,7 +353,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
 
         /* Connection terminated; resume advertising. */
 #if CONFIG_EXAMPLE_EXTENDED_ADV
-	ext_bleprph_advertise();
+        ext_bleprph_advertise();
 #else
         bleprph_advertise();
 #endif
@@ -371,7 +377,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
 #endif
         return 0;
 
-     default:
+    default:
         return 0;
     }
 
@@ -437,7 +443,12 @@ app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    nimble_port_init();
+    ret = nimble_port_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(tag, "Failed to init nimble %d ", ret);
+        return;
+    }
+
     /* Initialize the NimBLE host configuration. */
     ble_hs_cfg.reset_cb = bleprph_on_reset;
     ble_hs_cfg.sync_cb = bleprph_on_sync;
@@ -460,7 +471,7 @@ app_main(void)
     ble_hs_cfg.sm_their_key_dist = 1;
 #endif
 
-#if CONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM > 1
+#if MYNEWT_VAL(BLE_L2CAP_COC_MAX_NUM) >= 1
     bleprph_l2cap_coc_mem_init();
 #endif
 

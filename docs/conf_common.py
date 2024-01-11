@@ -46,6 +46,7 @@ CLASSIC_BT_DOCS = ['api-reference/bluetooth/classic_bt.rst',
                    'api-reference/bluetooth/esp_a2dp.rst',
                    'api-reference/bluetooth/esp_avrc.rst',
                    'api-reference/bluetooth/esp_hidd.rst',
+                   'api-reference/bluetooth/esp_hidh.rst',
                    'api-reference/bluetooth/esp_l2cap_bt.rst',
                    'api-reference/bluetooth/esp_sdp.rst',
                    'api-reference/bluetooth/esp_hf_defs.rst',
@@ -228,7 +229,8 @@ linkcheck_exclude_documents = ['index',  # several false positives due to the wa
 
 linkcheck_ignore = ['https://webhome.phy.duke.edu/~rgb/General/dieharder.php',  # Certificate error
                     'https://docs.espressif.com/projects/esptool/en/latest/esp32c2/espefuse/index.html',  # Not published
-                    'https://www.espressif.com/sites/default/files/documentation/esp32-c2_datasheet_en.pdf',  # Not published
+                    'https://docs.espressif.com/projects/esptool/en/latest/esp32c2/espsecure/index.html#remote-signing-using-an-external-hs',  # Not published
+                    'https://www.cadence.com/content/dam/cadence-www/global/en_US/documents/tools/ip/tensilica-ip/isa-summary.pdf',  # Rejects user-agent
                     ]
 
 

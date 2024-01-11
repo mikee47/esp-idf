@@ -42,6 +42,17 @@ set(esptool_elf2image_args
     --flash_size ${ESPFLASHSIZE}
     )
 
+if(BOOTLOADER_BUILD AND CONFIG_SECURE_BOOT_V2_ENABLED)
+    # The bootloader binary needs to be 4KB aligned in order to append a secure boot V2 signature block.
+    # If CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is NOT set, the bootloader
+    # image generated is not 4KB aligned for external HSM to sign it readily.
+    # Following esptool option --pad-to-size 4KB generates a 4K aligned bootloader image.
+    # In case of signing during build, espsecure.py "sign_data" operation handles the 4K alignment of the image.
+    if(NOT CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES)
+        list(APPEND esptool_elf2image_args --pad-to-size 4KB)
+    endif()
+endif()
+
 set(MMU_PAGE_SIZE ${CONFIG_MMU_PAGE_MODE})
 
 if(NOT BOOTLOADER_BUILD)
@@ -98,7 +109,6 @@ idf_build_get_property(build_dir BUILD_DIR)
 
 idf_build_get_property(elf_name EXECUTABLE_NAME GENERATOR_EXPRESSION)
 idf_build_get_property(elf EXECUTABLE GENERATOR_EXPRESSION)
-idf_build_get_property(elf_dir EXECUTABLE_DIR GENERATOR_EXPRESSION)
 
 if(CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES AND NOT BOOTLOADER_BUILD)
     set(unsigned_project_binary "${elf_name}-unsigned.bin")
@@ -114,10 +124,10 @@ set(PROJECT_BIN "${elf_name}.bin")
 if(CONFIG_APP_BUILD_GENERATE_BINARIES)
     add_custom_command(OUTPUT "${build_dir}/.bin_timestamp"
         COMMAND ${ESPTOOLPY} elf2image ${esptool_elf2image_args}
-            -o "${build_dir}/${unsigned_project_binary}" "${elf_dir}/${elf}"
+            -o "${build_dir}/${unsigned_project_binary}" "$<TARGET_FILE:$<GENEX_EVAL:${elf}>>"
         COMMAND ${CMAKE_COMMAND} -E echo "Generated ${build_dir}/${unsigned_project_binary}"
         COMMAND ${CMAKE_COMMAND} -E md5sum "${build_dir}/${unsigned_project_binary}" > "${build_dir}/.bin_timestamp"
-        DEPENDS ${elf}
+        DEPENDS "$<TARGET_FILE:$<GENEX_EVAL:${elf}>>"
         VERBATIM
         WORKING_DIRECTORY ${build_dir}
         COMMENT "Generating binary image from built executable"
@@ -126,7 +136,7 @@ if(CONFIG_APP_BUILD_GENERATE_BINARIES)
 endif()
 
 set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
+    APPEND PROPERTY ADDITIONAL_CLEAN_FILES
     "${build_dir}/${unsigned_project_binary}"
     )
 
@@ -159,7 +169,7 @@ if(NOT BOOTLOADER_BUILD AND CONFIG_SECURE_SIGNED_APPS)
         add_dependencies(gen_project_binary gen_signed_project_binary)
 
         set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-            APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
+            APPEND PROPERTY ADDITIONAL_CLEAN_FILES
             "${build_dir}/${PROJECT_BIN}"
             )
     else()
@@ -189,7 +199,7 @@ add_custom_target(monitor
     COMMAND ${CMAKE_COMMAND}
     -D "IDF_PATH=${idf_path}"
     -D "SERIAL_TOOL=${ESPMONITOR}"
-    -D "SERIAL_TOOL_ARGS=--target;${target};${monitor_rev_args};${elf_dir}/${elf}"
+    -D "SERIAL_TOOL_ARGS=--target;${target};${monitor_rev_args};$<TARGET_FILE:$<GENEX_EVAL:${elf}>>"
     -D "WORKING_DIRECTORY=${build_dir}"
     -P run_serial_tool.cmake
     WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}

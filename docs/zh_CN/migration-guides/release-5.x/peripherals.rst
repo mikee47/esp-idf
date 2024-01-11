@@ -70,6 +70,10 @@ API 更新
 
 - ESP32 中的 API ``hall_sensor_read`` 已被删除，因此 ESP32 不再支持霍尔传感器。
 - API ``adc_set_i2s_data_source`` 和 ``adc_i2s_mode_init`` 已被弃用，相关的枚举 ``adc_i2s_source_t`` 也已被弃用，请使用 ``esp_adc/adc_continuous.h`` 进行迁移。
+- API ``adc_digi_filter_reset`` ， ``adc_digi_filter_set_config`` ， ``adc_digi_filter_get_config`` 和 ``adc_digi_filter_enable`` 已被移除. 这些接口的行为不被保证。 枚举 ``adc_digi_filter_idx_t`` ， ``adc_digi_filter_mode_t`` 和结构体 ``adc_digi_iir_filter_t`` 已被移除。
+- API ``esp_adc_cal_characterize`` 已被弃用， 请迁移到 ``adc_cali_create_scheme_curve_fitting`` 或 ``adc_cali_create_scheme_line_fitting``.
+- API ``esp_adc_cal_raw_to_voltage`` 已被弃用， 请迁移到 ``adc_cali_raw_to_voltage``.
+- API ``esp_adc_cal_get_voltage`` 已被弃用， 请迁移到 ``adc_oneshot_get_calibrated_result``.
 
 GPIO
 ----------
@@ -369,7 +373,7 @@ LCD
 - 更新后，用于注册 RGB 面板的事件回调函数已从 :cpp:type:`esp_lcd_rgb_panel_config_t` 更新为单独的 API :cpp:func:`esp_lcd_rgb_panel_register_event_callbacks`。但是，事件回调签名仍保持不变。
 - 更新后， :cpp:type:`esp_lcd_rgb_panel_config_t` 中的标志位 ``relax_on_idle`` 被重命名为 :cpp:member:`esp_lcd_rgb_panel_config_t::refresh_on_demand`，后者虽表达了同样的含义，但是其命名更有意义。
 - 更新后，如果创建 RGB LCD 时，标志位 ``refresh_on_demand`` 使能，驱动不会在 :cpp:func:`esp_lcd_panel_draw_bitmap` 中进行刷新，用户需要调用 :cpp:func:`esp_lcd_rgb_panel_refresh` 来刷新屏幕。
-- 更新后，:cpp:type:`esp_lcd_color_space_t` 已被弃用，请使用 :cpp:type:`lcd_color_space_t` 来描述色彩空间，使用 :cpp:type:`lcd_color_rgb_endian_t` 来描述 RGB 颜色的排列顺序。
+- 更新后，:cpp:type:`esp_lcd_color_space_t` 已被弃用，请使用 :cpp:type:`lcd_color_space_t` 来描述色彩空间，使用 :cpp:type:`lcd_rgb_element_order_t` 来描述 RGB 颜色的排列顺序。
 
 .. only:: SOC_MCPWM_SUPPORTED
 

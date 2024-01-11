@@ -1,14 +1,8 @@
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2016-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <string.h>
 #include <sys/queue.h>
@@ -613,7 +607,7 @@ static uint32_t slider_filter_average(te_slider_handle_t slider_handle, uint32_t
     for (int win_idx = 0; win_idx < TE_SLD_DEFAULT_POS_FILTER_SIZE(s_te_sld_obj); win_idx++) { //Moving average filter
         position_average += slider_handle->pos_filter_window[win_idx];
     }
-    position_average = position_average / TE_SLD_DEFAULT_POS_FILTER_SIZE(s_te_sld_obj) + 0.5;
+    position_average = (uint32_t)((float)position_average / TE_SLD_DEFAULT_POS_FILTER_SIZE(s_te_sld_obj) + 0.5F);
     return position_average;
 }
 

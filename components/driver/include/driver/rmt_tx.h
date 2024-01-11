@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -30,11 +30,15 @@ typedef struct {
  * @brief RMT TX channel specific configuration
  */
 typedef struct {
-    int gpio_num;               /*!< GPIO number used by RMT TX channel. Set to -1 if unused */
+    gpio_num_t gpio_num;        /*!< GPIO number used by RMT TX channel. Set to -1 if unused */
     rmt_clock_source_t clk_src; /*!< Clock source of RMT TX channel, channels in the same group must use the same clock source */
     uint32_t resolution_hz;     /*!< Channel clock resolution, in Hz */
-    size_t mem_block_symbols;   /*!< Size of memory block, in number of `rmt_symbol_word_t`, must be an even */
+    size_t mem_block_symbols;   /*!< Size of memory block, in number of `rmt_symbol_word_t`, must be an even.
+                                     In the DMA mode, this field controls the DMA buffer size, it can be set to a large value;
+                                     In the normal mode, this field controls the number of RMT memory block that will be used by the channel. */
     size_t trans_queue_depth;   /*!< Depth of internal transfer queue, increase this value can support more transfers pending in the background */
+    int intr_priority;          /*!< RMT interrupt priority,
+                                     if set to 0, the driver will try to allocate an interrupt with a relative low priority (1,2,3) */
     struct {
         uint32_t invert_out: 1;   /*!< Whether to invert the RMT channel signal before output to GPIO pad */
         uint32_t with_dma: 1;     /*!< If set, the driver will allocate an RMT channel with DMA capability */
@@ -49,8 +53,9 @@ typedef struct {
 typedef struct {
     int loop_count; /*!< Specify the times of transmission in a loop, -1 means transmitting in an infinite loop */
     struct {
-        uint32_t eot_level : 1; /*!< Set the output level for the "End Of Transmission" */
-    } flags;                    /*!< Transmit config flags */
+        uint32_t eot_level : 1;         /*!< Set the output level for the "End Of Transmission" */
+        uint32_t queue_nonblocking : 1; /*!< If set, when the transaction queue is full, driver will not block the thread but return directly */
+    } flags;                            /*!< Transmit specific config flags */
 } rmt_transmit_config_t;
 
 /**
@@ -79,8 +84,11 @@ esp_err_t rmt_new_tx_channel(const rmt_tx_channel_config_t *config, rmt_channel_
 /**
  * @brief Transmit data by RMT TX channel
  *
- * @note This function will construct a transaction descriptor and push to a queue. The transaction will not start immediately until it's dispatched in the ISR.
- *       If there're too many transactions pending in the queue, this function will block until the queue has free space.
+ * @note This function constructs a transaction descriptor then pushes to a queue.
+ *       The transaction will not start immediately if there's another one under processing.
+ *       Based on the setting of `rmt_transmit_config_t::queue_nonblocking`,
+ *       if there're too many transactions pending in the queue, this function can block until it has free slot,
+ *       otherwise just return quickly.
  * @note The data to be transmitted will be encoded into RMT symbols by the specific `encoder`.
  *
  * @param[in] tx_channel RMT TX channel that created by `rmt_new_tx_channel()`

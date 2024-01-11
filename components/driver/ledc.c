@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,6 +20,7 @@
 #include "esp_rom_sys.h"
 #include "clk_ctrl_os.h"
 #include "esp_private/periph_ctrl.h"
+#include "esp_memory_utils.h"
 
 static __attribute__((unused)) const char *LEDC_TAG = "ledc";
 
@@ -663,8 +664,13 @@ esp_err_t ledc_channel_config(const ledc_channel_config_t *ledc_conf)
     }
 
     /*set channel parameters*/
-    /*   channel parameters decide how the waveform looks like in one period*/
-    /*   set channel duty and hpoint value, duty range is (0 ~ ((2 ** duty_resolution) - 1)), max hpoint value is 0xfffff*/
+    /*   channel parameters decide how the waveform looks like in one period */
+    /*   set channel duty and hpoint value, duty range is [0, (2**duty_res)], hpoint range is [0, (2**duty_res)-1] */
+    /*   Note: On ESP32, ESP32S2, ESP32S3, ESP32C3, ESP32C2, ESP32H2 due to a hardware bug,
+     *         100% duty cycle (i.e. 2**duty_res) is not reachable when the binded timer selects the maximum duty
+     *         resolution. For example, the max duty resolution on ESP32C3 is 14-bit width, then set duty to (2**14)
+     *         will mess up the duty calculation in hardware.
+    */
     ledc_set_duty_with_hpoint(speed_mode, ledc_channel, duty, hpoint);
     /*update duty settings*/
     ledc_update_duty(speed_mode, ledc_channel);
@@ -839,7 +845,7 @@ uint32_t ledc_get_freq(ledc_mode_t speed_mode, ledc_timer_t timer_num)
         ESP_LOGW(LEDC_TAG, "LEDC timer not configured, call ledc_timer_config to set timer frequency");
         return 0;
     }
-    return ((uint64_t) src_clk_freq << 8) / precision / clock_divider;
+    return (((uint64_t) src_clk_freq << LEDC_LL_FRACTIONAL_BITS) + (uint64_t) precision * clock_divider / 2) / precision / clock_divider;
 }
 
 static inline void ledc_calc_fade_end_channel(uint32_t *fade_end_status, uint32_t *channel)
@@ -849,7 +855,7 @@ static inline void ledc_calc_fade_end_channel(uint32_t *fade_end_status, uint32_
     *channel = i;
 }
 
-void IRAM_ATTR ledc_fade_isr(void *arg)
+static void IRAM_ATTR ledc_fade_isr(void *arg)
 {
     bool cb_yield = false;
     portBASE_TYPE HPTaskAwoken = pdFALSE;
@@ -1051,8 +1057,9 @@ static esp_err_t _ledc_set_fade_with_step(ledc_mode_t speed_mode, ledc_channel_t
         ESP_LOGD(LEDC_TAG, "cur duty: %"PRIu32"; target: %"PRIu32", step: %d, cycle: %d; scale: %d; dir: %d\n",
                  duty_cur, target_duty, step_num, cycle_num, scale, dir);
     } else {
+        // Directly set duty to the target, does not care on the dir
         portENTER_CRITICAL(&ledc_spinlock);
-        ledc_duty_config(speed_mode, channel, LEDC_VAL_NO_CHANGE, target_duty, dir, 0, 1, 0);
+        ledc_duty_config(speed_mode, channel, LEDC_VAL_NO_CHANGE, target_duty, 1, 0, 1, 0);
         portEXIT_CRITICAL(&ledc_spinlock);
         ESP_LOGD(LEDC_TAG, "Set to target duty: %"PRIu32, target_duty);
     }
@@ -1212,6 +1219,7 @@ esp_err_t ledc_fade_stop(ledc_mode_t speed_mode, ledc_channel_t channel)
 
 esp_err_t ledc_fade_func_install(int intr_alloc_flags)
 {
+    LEDC_CHECK(s_ledc_fade_isr_handle == NULL, "fade function already installed", ESP_ERR_INVALID_STATE);
     //OR intr_alloc_flags with ESP_INTR_FLAG_IRAM because the fade isr is in IRAM
     return ledc_isr_register(ledc_fade_isr, NULL, intr_alloc_flags | ESP_INTR_FLAG_IRAM, &s_ledc_fade_isr_handle);
 }
@@ -1235,8 +1243,15 @@ esp_err_t ledc_cb_register(ledc_mode_t speed_mode, ledc_channel_t channel, ledc_
 {
     LEDC_ARG_CHECK(speed_mode < LEDC_SPEED_MODE_MAX, "speed_mode");
     LEDC_ARG_CHECK(channel < LEDC_CHANNEL_MAX, "channel");
+    LEDC_ARG_CHECK(cbs, "callback");
     LEDC_CHECK(p_ledc_obj[speed_mode] != NULL, LEDC_NOT_INIT, ESP_ERR_INVALID_STATE);
     LEDC_CHECK(ledc_fade_channel_init_check(speed_mode, channel) == ESP_OK, LEDC_FADE_INIT_ERROR_STR, ESP_FAIL);
+    if (cbs->fade_cb && !esp_ptr_in_iram(cbs->fade_cb)) {
+        ESP_LOGW(LEDC_TAG, "fade callback not in IRAM");
+    }
+    if (user_arg && !esp_ptr_internal(user_arg)) {
+        ESP_LOGW(LEDC_TAG, "user context not in internal RAM");
+    }
     s_ledc_fade_rec[speed_mode][channel]->ledc_fade_callback = cbs->fade_cb;
     s_ledc_fade_rec[speed_mode][channel]->cb_user_arg = user_arg;
     return ESP_OK;

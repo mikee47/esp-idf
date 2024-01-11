@@ -1,9 +1,8 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
@@ -28,6 +27,7 @@
 
 /* ---------------------------- Definitions --------------------------------- */
 //Internal Macros
+#define TWAI_TAG "TWAI"
 #define TWAI_CHECK(cond, ret_val) ({                                        \
             if (!(cond)) {                                                  \
                 return (ret_val);                                           \
@@ -41,11 +41,11 @@
 })
 #define TWAI_SET_FLAG(var, mask)    ((var) |= (mask))
 #define TWAI_RESET_FLAG(var, mask)  ((var) &= ~(mask))
+
 #ifdef CONFIG_TWAI_ISR_IN_IRAM
 #define TWAI_ISR_ATTR       IRAM_ATTR
 #define TWAI_MALLOC_CAPS    (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
 #else
-#define TWAI_TAG "TWAI"
 #define TWAI_ISR_ATTR
 #define TWAI_MALLOC_CAPS    MALLOC_CAP_DEFAULT
 #endif  //CONFIG_TWAI_ISR_IN_IRAM
@@ -278,19 +278,30 @@ TWAI_ISR_ATTR static void twai_intr_handler_main(void *arg)
 }
 
 /* -------------------------- Helper functions  ----------------------------- */
-
-static void twai_configure_gpio(gpio_num_t tx, gpio_num_t rx, gpio_num_t clkout, gpio_num_t bus_status)
+static esp_err_t twai_configure_gpio(gpio_num_t tx, gpio_num_t rx, gpio_num_t clkout, gpio_num_t bus_status)
 {
-    //Set TX pin
-    gpio_set_pull_mode(tx, GPIO_FLOATING);
-    esp_rom_gpio_connect_out_signal(tx, TWAI_TX_IDX, false, false);
-    esp_rom_gpio_pad_select_gpio(tx);
-
+    esp_err_t ret = ESP_FAIL;
+    assert(tx >= 0 && rx >= 0);
+    // if TX and RX set to the same GPIO, which means we want to create a loop-back in the GPIO matrix
+    bool io_loop_back = (tx == rx);
+    gpio_config_t gpio_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .pull_down_en = false,
+        .pull_up_en = false,
+    };
     //Set RX pin
-    gpio_set_pull_mode(rx, GPIO_FLOATING);
+    gpio_conf.mode = GPIO_MODE_INPUT | (io_loop_back ? GPIO_MODE_OUTPUT : 0);
+    gpio_conf.pin_bit_mask = 1ULL << rx;
+    ret = gpio_config(&gpio_conf);
+    TWAI_CHECK(ESP_OK == ret, ret);
     esp_rom_gpio_connect_in_signal(rx, TWAI_RX_IDX, false);
-    esp_rom_gpio_pad_select_gpio(rx);
-    gpio_set_direction(rx, GPIO_MODE_INPUT);
+
+    //Set TX pin
+    gpio_conf.mode = GPIO_MODE_OUTPUT | (io_loop_back ? GPIO_MODE_INPUT : 0);
+    gpio_conf.pin_bit_mask = 1ULL << tx;
+    ret = gpio_config(&gpio_conf);
+    TWAI_CHECK(ESP_OK == ret, ret);
+    esp_rom_gpio_connect_out_signal(tx, TWAI_TX_IDX, false, false);
 
     //Configure output clock pin (Optional)
     if (clkout >= 0 && clkout < GPIO_NUM_MAX) {
@@ -305,16 +316,20 @@ static void twai_configure_gpio(gpio_num_t tx, gpio_num_t rx, gpio_num_t clkout,
         esp_rom_gpio_connect_out_signal(bus_status, TWAI_BUS_OFF_ON_IDX, false, false);
         esp_rom_gpio_pad_select_gpio(bus_status);
     }
+    return ESP_OK;
 }
 
 static void twai_free_driver_obj(twai_obj_t *p_obj)
 {
-    //Free driver object and any dependent SW resources it uses (queues, semaphores etc)
-#ifdef CONFIG_PM_ENABLE
+    //Free driver object and any dependent SW resources it uses (queues, semaphores, interrupts, PM locks etc)
+#if CONFIG_PM_ENABLE
     if (p_obj->pm_lock != NULL) {
         ESP_ERROR_CHECK(esp_pm_lock_delete(p_obj->pm_lock));
     }
-#endif
+#endif //CONFIG_PM_ENABLE
+    if (p_obj->isr_handle) {
+        ESP_ERROR_CHECK(esp_intr_free(p_obj->isr_handle));
+    }
     //Delete queues and semaphores
     if (p_obj->tx_queue != NULL) {
         vQueueDelete(p_obj->tx_queue);
@@ -336,63 +351,81 @@ static void twai_free_driver_obj(twai_obj_t *p_obj)
     free(p_obj);
 }
 
-static twai_obj_t *twai_alloc_driver_obj(uint32_t tx_queue_len, uint32_t rx_queue_len)
+static esp_err_t twai_alloc_driver_obj(const twai_general_config_t *g_config, twai_obj_t **p_twai_obj_ret)
 {
-    //Allocates driver object and any dependent SW resources it uses (queues, semaphores etc)
+    //Allocate driver object and any dependent SW resources it uses (queues, semaphores, interrupts, PM locks etc)
+    esp_err_t ret;
+
     //Create a TWAI driver object
     twai_obj_t *p_obj = heap_caps_calloc(1, sizeof(twai_obj_t), TWAI_MALLOC_CAPS);
     if (p_obj == NULL) {
-        return NULL;
+        return ESP_ERR_NO_MEM;
     }
 #ifdef CONFIG_TWAI_ISR_IN_IRAM
     //Allocate memory for queues and semaphores in DRAM
-    if (tx_queue_len > 0) {
-        p_obj->tx_queue_buff = heap_caps_calloc(tx_queue_len, sizeof(twai_hal_frame_t), TWAI_MALLOC_CAPS);
+    if (g_config->tx_queue_len > 0) {
+        p_obj->tx_queue_buff = heap_caps_calloc(g_config->tx_queue_len, sizeof(twai_hal_frame_t), TWAI_MALLOC_CAPS);
         p_obj->tx_queue_struct = heap_caps_calloc(1, sizeof(StaticQueue_t), TWAI_MALLOC_CAPS);
         if (p_obj->tx_queue_buff == NULL || p_obj->tx_queue_struct == NULL) {
-            goto cleanup;
+            ret = ESP_ERR_NO_MEM;
+            goto err;
         }
     }
-    p_obj->rx_queue_buff = heap_caps_calloc(rx_queue_len, sizeof(twai_hal_frame_t), TWAI_MALLOC_CAPS);
+    p_obj->rx_queue_buff = heap_caps_calloc(g_config->rx_queue_len, sizeof(twai_hal_frame_t), TWAI_MALLOC_CAPS);
     p_obj->rx_queue_struct = heap_caps_calloc(1, sizeof(StaticQueue_t), TWAI_MALLOC_CAPS);
     p_obj->semphr_struct = heap_caps_calloc(1, sizeof(StaticSemaphore_t), TWAI_MALLOC_CAPS);
     if (p_obj->rx_queue_buff == NULL || p_obj->rx_queue_struct == NULL || p_obj->semphr_struct == NULL) {
-        goto cleanup;
+        ret = ESP_ERR_NO_MEM;
+        goto err;
     }
     //Create static queues and semaphores
-    if (tx_queue_len > 0) {
-        p_obj->tx_queue = xQueueCreateStatic(tx_queue_len, sizeof(twai_hal_frame_t), p_obj->tx_queue_buff, p_obj->tx_queue_struct);
+    if (g_config->tx_queue_len > 0) {
+        p_obj->tx_queue = xQueueCreateStatic(g_config->tx_queue_len, sizeof(twai_hal_frame_t), p_obj->tx_queue_buff, p_obj->tx_queue_struct);
         if (p_obj->tx_queue == NULL) {
-            goto cleanup;
+            ret = ESP_ERR_NO_MEM;
+            goto err;
         }
     }
-    p_obj->rx_queue = xQueueCreateStatic(rx_queue_len, sizeof(twai_hal_frame_t), p_obj->rx_queue_buff, p_obj->rx_queue_struct);
+    p_obj->rx_queue = xQueueCreateStatic(g_config->rx_queue_len, sizeof(twai_hal_frame_t), p_obj->rx_queue_buff, p_obj->rx_queue_struct);
     p_obj->alert_semphr = xSemaphoreCreateBinaryStatic(p_obj->semphr_struct);
     if (p_obj->rx_queue == NULL || p_obj->alert_semphr == NULL) {
-        goto cleanup;
+        ret = ESP_ERR_NO_MEM;
+        goto err;
     }
 #else   //CONFIG_TWAI_ISR_IN_IRAM
-    if (tx_queue_len > 0) {
-        p_obj->tx_queue = xQueueCreate(tx_queue_len, sizeof(twai_hal_frame_t));
+    if (g_config->tx_queue_len > 0) {
+        p_obj->tx_queue = xQueueCreate(g_config->tx_queue_len, sizeof(twai_hal_frame_t));
     }
-    p_obj->rx_queue = xQueueCreate(rx_queue_len, sizeof(twai_hal_frame_t));
+    p_obj->rx_queue = xQueueCreate(g_config->rx_queue_len, sizeof(twai_hal_frame_t));
     p_obj->alert_semphr = xSemaphoreCreateBinary();
-    if ((tx_queue_len > 0 && p_obj->tx_queue == NULL) || p_obj->rx_queue == NULL || p_obj->alert_semphr == NULL) {
-        goto cleanup;
+    if ((g_config->tx_queue_len > 0 && p_obj->tx_queue == NULL) || p_obj->rx_queue == NULL || p_obj->alert_semphr == NULL) {
+        ret = ESP_ERR_NO_MEM;
+        goto err;
     }
 #endif  //CONFIG_TWAI_ISR_IN_IRAM
-
-#ifdef CONFIG_PM_ENABLE
-    esp_err_t pm_err = esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "twai", &(p_obj->pm_lock));
-    if (pm_err != ESP_OK ) {
-        goto cleanup;
+    //Allocate interrupt
+    ret = esp_intr_alloc(ETS_TWAI_INTR_SOURCE,
+                         g_config->intr_flags | ESP_INTR_FLAG_INTRDISABLED,
+                         twai_intr_handler_main,
+                         NULL,
+                         &p_obj->isr_handle);
+    if (ret != ESP_OK) {
+        goto err;
     }
-#endif
-    return p_obj;
+#if CONFIG_PM_ENABLE
+    // XTAL freq can be closed in light sleep, so we need to create a lock to prevent light sleep
+    ret = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "twai", &(p_obj->pm_lock));
+    if (ret != ESP_OK) {
+        goto err;
+    }
+#endif //CONFIG_PM_ENABLE
 
-cleanup:
+    *p_twai_obj_ret = p_obj;
+    return ESP_OK;
+
+err:
     twai_free_driver_obj(p_obj);
-    return NULL;
+    return ret;
 }
 
 /* ---------------------------- Public Functions ---------------------------- */
@@ -417,17 +450,25 @@ esp_err_t twai_driver_install(const twai_general_config_t *g_config, const twai_
     esp_err_t ret;
     twai_obj_t *p_twai_obj_dummy;
 
-    //Create a TWAI object (including queues and semaphores)
-    p_twai_obj_dummy = twai_alloc_driver_obj(g_config->tx_queue_len, g_config->rx_queue_len);
-    TWAI_CHECK(p_twai_obj_dummy != NULL, ESP_ERR_NO_MEM);
+    //Create a TWAI object (including queues, semaphores, interrupts, and PM locks)
+    ret = twai_alloc_driver_obj(g_config, &p_twai_obj_dummy);
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
     //Initialize flags and variables. All other members are already set to zero by twai_alloc_driver_obj()
     p_twai_obj_dummy->state = TWAI_STATE_STOPPED;
     p_twai_obj_dummy->mode = g_config->mode;
     p_twai_obj_dummy->alerts_enabled = g_config->alerts_enabled;
 
-    //Initialize TWAI peripheral registers, and allocate interrupt
+    //Assign GPIO
+    ret = twai_configure_gpio(g_config->tx_io, g_config->rx_io, g_config->clkout_io, g_config->bus_off_io);
+    if (ESP_OK != ret) {
+        goto err;
+    }
+
     TWAI_ENTER_CRITICAL();
+    //Assign the TWAI object
     if (p_twai_obj == NULL) {
         p_twai_obj = p_twai_obj_dummy;
     } else {
@@ -436,21 +477,26 @@ esp_err_t twai_driver_install(const twai_general_config_t *g_config, const twai_
         ret = ESP_ERR_INVALID_STATE;
         goto err;
     }
+    //Reset and enable the TWAI peripheral
     periph_module_reset(PERIPH_TWAI_MODULE);
-    periph_module_enable(PERIPH_TWAI_MODULE);            //Enable APB CLK to TWAI peripheral
+    periph_module_enable(PERIPH_TWAI_MODULE);
+
+    //Initialize TWAI HAL layer
     bool init = twai_hal_init(&twai_context);
     assert(init);
     (void)init;
     twai_hal_configure(&twai_context, t_config, f_config, DRIVER_DEFAULT_INTERRUPTS, g_config->clkout_divider);
     TWAI_EXIT_CRITICAL();
 
-    //Allocate GPIO and Interrupts
-    twai_configure_gpio(g_config->tx_io, g_config->rx_io, g_config->clkout_io, g_config->bus_off_io);
-    ESP_ERROR_CHECK(esp_intr_alloc(ETS_TWAI_INTR_SOURCE, g_config->intr_flags, twai_intr_handler_main, NULL, &p_twai_obj->isr_handle));
+#if CONFIG_PM_ENABLE
+    //Acquire PM lock
+    if (p_twai_obj->pm_lock) {
+        ESP_ERROR_CHECK(esp_pm_lock_acquire(p_twai_obj->pm_lock));     //Acquire pm_lock during the whole driver lifetime
+    }
+#endif //CONFIG_PM_ENABLE
+    //Enable interrupt
+    ESP_ERROR_CHECK(esp_intr_enable(p_twai_obj->isr_handle));
 
-#ifdef CONFIG_PM_ENABLE
-    ESP_ERROR_CHECK(esp_pm_lock_acquire(p_twai_obj->pm_lock));     //Acquire pm_lock to keep APB clock at 80MHz
-#endif
     return ESP_OK;      //TWAI module is still in reset mode, users need to call twai_start() afterwards
 
 err:
@@ -473,12 +519,12 @@ esp_err_t twai_driver_uninstall(void)
     p_twai_obj = NULL;
     TWAI_EXIT_CRITICAL();
 
-    ESP_ERROR_CHECK(esp_intr_free(p_twai_obj_dummy->isr_handle));  //Free interrupt
-
 #ifdef CONFIG_PM_ENABLE
-    //Release and delete power management lock
+    //Release the power management lock
     ESP_ERROR_CHECK(esp_pm_lock_release(p_twai_obj_dummy->pm_lock));
 #endif
+    //Disable interrupt
+    ESP_ERROR_CHECK(esp_intr_disable(p_twai_obj_dummy->isr_handle));
     //Free can driver object
     twai_free_driver_obj(p_twai_obj_dummy);
     return ESP_OK;
@@ -633,7 +679,7 @@ esp_err_t twai_reconfigure_alerts(uint32_t alerts_enabled, uint32_t *current_ale
     TWAI_ENTER_CRITICAL();
     //Clear any unhandled alerts
     if (current_alerts != NULL) {
-        *current_alerts = p_twai_obj->alerts_triggered;;
+        *current_alerts = p_twai_obj->alerts_triggered;
     }
     p_twai_obj->alerts_triggered = 0;
     p_twai_obj->alerts_enabled = alerts_enabled;         //Update enabled alerts
@@ -670,8 +716,14 @@ esp_err_t twai_get_status_info(twai_status_info_t *status_info)
     TWAI_CHECK(status_info != NULL, ESP_ERR_INVALID_ARG);
 
     TWAI_ENTER_CRITICAL();
-    status_info->tx_error_counter = twai_hal_get_tec(&twai_context);
-    status_info->rx_error_counter = twai_hal_get_rec(&twai_context);
+    if (p_twai_obj->mode == TWAI_MODE_LISTEN_ONLY) {
+        //Error counters are frozen under listen only mode thus are meaningless. Simply return 0 in this case.
+        status_info->tx_error_counter = 0;
+        status_info->rx_error_counter = 0;
+    } else {
+        status_info->tx_error_counter = twai_hal_get_tec(&twai_context);
+        status_info->rx_error_counter = twai_hal_get_rec(&twai_context);
+    }
     status_info->msgs_to_tx = p_twai_obj->tx_msg_count;
     status_info->msgs_to_rx = p_twai_obj->rx_msg_count;
     status_info->tx_failed_count = p_twai_obj->tx_failed_count;
@@ -699,6 +751,7 @@ esp_err_t twai_clear_transmit_queue(void)
 
     return ESP_OK;
 }
+
 
 esp_err_t twai_clear_receive_queue(void)
 {

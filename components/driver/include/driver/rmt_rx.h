@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -29,15 +29,19 @@ typedef struct {
  * @brief RMT RX channel specific configuration
  */
 typedef struct {
-    int gpio_num;               /*!< GPIO number used by RMT RX channel. Set to -1 if unused */
+    gpio_num_t gpio_num;        /*!< GPIO number used by RMT RX channel. Set to -1 if unused */
     rmt_clock_source_t clk_src; /*!< Clock source of RMT RX channel, channels in the same group must use the same clock source */
     uint32_t resolution_hz;     /*!< Channel clock resolution, in Hz */
-    size_t mem_block_symbols;   /*!< Size of memory block, in number of `rmt_symbol_word_t`, must be an even */
+    size_t mem_block_symbols;   /*!< Size of memory block, in number of `rmt_symbol_word_t`, must be an even.
+                                     In the DMA mode, this field controls the DMA buffer size, it can be set to a large value (e.g. 1024);
+                                     In the normal mode, this field controls the number of RMT memory block that will be used by the channel. */
     struct {
         uint32_t invert_in: 1;    /*!< Whether to invert the incoming RMT channel signal */
         uint32_t with_dma: 1;     /*!< If set, the driver will allocate an RMT channel with DMA capability */
         uint32_t io_loop_back: 1; /*!< For debug/test, the signal output from the GPIO will be fed to the input path as well */
     } flags;                      /*!< RX channel config flags */
+    int intr_priority;            /*!< RMT interrupt priority,
+                                       if set to 0, the driver will try to allocate an interrupt with a relative low priority (1,2,3) */
 } rmt_rx_channel_config_t;
 
 /**
@@ -68,6 +72,8 @@ esp_err_t rmt_new_rx_channel(const rmt_rx_channel_config_t *config, rmt_channel_
  *
  * @note This function is non-blocking, it initiates a new receive job and then returns.
  *       User should check the received data from the `on_recv_done` callback that registered by `rmt_rx_register_event_callbacks()`.
+ * @note This function can also be called in ISR context.
+ * @note If you want this function to work even when the flash cache is disabled, please enable the `CONFIG_RMT_RECV_FUNC_IN_IRAM` option.
  *
  * @param[in] rx_channel RMT RX channel that created by `rmt_new_rx_channel()`
  * @param[in] buffer The buffer to store the received RMT symbols

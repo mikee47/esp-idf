@@ -26,7 +26,7 @@ FatFs 与 VFS 配合使用
 
 2. 调用 :cpp:func:`ff_diskio_register`，为步骤 1 中的驱动编号注册磁盘 I/O 驱动；
 
-3. 调用 FatFs 函数 ``f_mount``，随后调用 ``f_fdisk`` 或 ``f_mkfs``，并使用与传递到 :cpp:func:`esp_vfs_fat_register` 相同的驱动编号挂载文件系统。请参考 `FatFs 文档 <http://www.elm-chan.org/fsw/ff/doc/mount.html>`_，查看更多信息；
+3. 调用 FatFs 函数 ``f_mount``，随后调用 ``f_fdisk`` 或 ``f_mkfs``，并使用与传递到 :cpp:func:`esp_vfs_fat_register` 相同的驱动编号挂载文件系统。请参考 `FatFs 文档 <http://elm-chan.org/fsw/ff/doc/mount.html>`_，查看更多信息；
 
 4. 调用 C 标准库和 POSIX API 对路径中带有步骤 1 中所述前缀的文件（例如，``"/sdcard/hello.txt"``）执行打开、读取、写入、擦除、复制等操作。文件系统默认使用 `8.3 文件名 <https://en.wikipedia.org/wiki/8.3_filename>`_ 格式 (SFN)。若您需要使用长文件名 (LFN)，启用 :ref:`CONFIG_FATFS_LONG_FILENAMES` 选项。请参考 `here <http://elm-chan.org/fsw/ff/doc/filename.html>`_，查看更多信息；
 
@@ -42,10 +42,7 @@ FatFs 与 VFS 配合使用
 
 10. 调用 :cpp:func:`esp_vfs_fat_unregister_path` 并使用文件系统挂载的路径将 FatFs 从 VFS 中移除，并释放步骤 1 中分配的 ``FATFS`` 结构。
 
-便捷函数 ``esp_vfs_fat_sdmmc_mount``、 ``esp_vfs_fat_sdspi_mount`` 和 ``esp_vfs_fat_sdmmc_unmount`` 对上述步骤进行了封装，并加入了对 SD 卡初始化的处理。我们将在下一章节详细介绍以上函数。
-
-.. doxygenfunction:: esp_vfs_fat_register
-.. doxygenfunction:: esp_vfs_fat_unregister_path
+便捷函数 :cpp:func:`esp_vfs_fat_sdmmc_mount`、:cpp:func:`esp_vfs_fat_sdspi_mount` 和 :cpp:func:`esp_vfs_fat_sdcard_unmount` 对上述步骤进行了封装，并加入了对 SD 卡初始化的处理。我们将在下一章节详细介绍以上函数。
 
 
 FatFs 与 VFS 和 SD 卡配合使用
@@ -55,21 +52,11 @@ FatFs 与 VFS 和 SD 卡配合使用
 
 便捷函数 :cpp:func:`esp_vfs_fat_sdmmc_unmount` 用于卸载文件系统并释放从 :cpp:func:`esp_vfs_fat_sdmmc_mount` 函数获取的资源。
 
-.. doxygenfunction:: esp_vfs_fat_sdmmc_mount
-.. doxygenfunction:: esp_vfs_fat_sdmmc_unmount
-.. doxygenfunction:: esp_vfs_fat_sdspi_mount
-.. doxygenstruct:: esp_vfs_fat_mount_config_t
-    :members:
-.. doxygenfunction:: esp_vfs_fat_sdcard_unmount
-
 
 FatFs 与 VFS 配合使用（只读模式下）
 --------------------------------------
 
 头文件 :component_file:`fatfs/vfs/esp_vfs_fat.h` 也定义了两个便捷函数 :cpp:func:`esp_vfs_fat_spiflash_mount_ro` 和 :cpp:func:`esp_vfs_fat_spiflash_unmount_ro`。上述两个函数分别对 FAT 只读分区执行步骤 1-3 和步骤 7-9。有些数据分区仅在工厂配置时写入一次，之后在整个硬件生命周期内都不会再有任何改动。利用上述两个函数处理这种数据分区非常方便。
-
-.. doxygenfunction:: esp_vfs_fat_spiflash_mount_ro
-.. doxygenfunction:: esp_vfs_fat_spiflash_unmount_ro
 
 
 FatFs 磁盘 I/O 层
@@ -142,3 +129,9 @@ FatFs 分区分析器
 您可以使用::
 
     ./fatfsparse.py [-h] [--long-name-support] [--wear-leveling] fatfs_image.img
+
+
+高级 API 参考
+------------------------
+
+.. include-build-file:: inc/esp_vfs_fat.inc

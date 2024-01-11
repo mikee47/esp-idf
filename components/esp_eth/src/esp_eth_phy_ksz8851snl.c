@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: MIT
  *
- * SPDX-FileContributor: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2021-2023 Espressif Systems (Shanghai) CO LTD
  */
 #include <stdlib.h>
 #include "esp_check.h"
@@ -288,12 +288,9 @@ static esp_err_t phy_ksz8851_set_speed(esp_eth_phy_t *phy, eth_speed_t speed)
     phy_ksz8851snl_t *ksz8851 = __containerof(phy, phy_ksz8851snl_t, parent);
     esp_eth_mediator_t *eth   = ksz8851->eth;
 
-    if (ksz8851->link_status == ETH_LINK_UP) {
-        /* Since the link is going to be reconfigured, consider it down for a while */
-        ksz8851->link_status = ETH_LINK_DOWN;
-        /* Indicate to upper stream apps the link is cosidered down */
-        ESP_GOTO_ON_ERROR(eth->on_state_changed(eth, ETH_STATE_LINK, (void *)ksz8851->link_status), err, TAG, "change link failed");
-    }
+    /* Since the link is going to be reconfigured, consider it down to be status updated once the driver re-started */
+    ksz8851->link_status = ETH_LINK_DOWN;
+
     /* Set speed */
     uint32_t control;
     ESP_GOTO_ON_ERROR(eth->phy_reg_read(eth, ksz8851->addr, KSZ8851_P1CR, &control), err, TAG, "P1CR read failed");
@@ -315,15 +312,17 @@ static esp_err_t phy_ksz8851_set_duplex(esp_eth_phy_t *phy, eth_duplex_t duplex)
     phy_ksz8851snl_t *ksz8851 = __containerof(phy, phy_ksz8851snl_t, parent);
     esp_eth_mediator_t *eth   = ksz8851->eth;
 
-    if (ksz8851->link_status == ETH_LINK_UP) {
-        /* Since the link is going to be reconfigured, consider it down for a while */
-        ksz8851->link_status = ETH_LINK_DOWN;
-        /* Indicate to upper stream apps the link is cosidered down */
-        ESP_GOTO_ON_ERROR(eth->on_state_changed(eth, ETH_STATE_LINK, (void *)ksz8851->link_status), err, TAG, "change link failed");
-    }
+    /* Since the link is going to be reconfigured, consider it down to be status updated once the driver re-started */
+    ksz8851->link_status = ETH_LINK_DOWN;
+
     /* Set duplex mode */
     uint32_t control;
+    uint32_t mbcr;
     ESP_GOTO_ON_ERROR(eth->phy_reg_read(eth, ksz8851->addr, KSZ8851_P1CR, &control), err, TAG, "P1CR read failed");
+    ESP_GOTO_ON_ERROR(eth->phy_reg_read(eth, ksz8851->addr, KSZ8851_P1MBCR, &mbcr), err, TAG, "P1MBCR read failed");
+    if (mbcr & P1MBCR_LOCAL_LOOPBACK) {
+        ESP_GOTO_ON_FALSE(duplex == ETH_DUPLEX_FULL, ESP_ERR_INVALID_STATE, err, TAG, "Duplex mode must be FULL for loopback operation");
+    }
     if (duplex == ETH_DUPLEX_FULL) {
         control |= P1CR_FORCE_DUPLEX;
     } else {

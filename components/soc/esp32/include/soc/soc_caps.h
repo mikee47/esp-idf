@@ -1,6 +1,6 @@
 
 /*
- * SPDX-FileCopyrightText: 2020-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -133,7 +133,8 @@
 
 
 /*-------------------------- CACHE/MMU CAPS ----------------------------------*/
-#define SOC_SHARED_IDCACHE_SUPPORTED            1   //Shared Cache for both instructions and data
+#define SOC_SHARED_IDCACHE_SUPPORTED            1   //Shared Cache for both instructions and data within one core
+#define SOC_IDCACHE_PER_CORE                    1   //Independent Cache unit pre core
 #define SOC_MMU_LINEAR_ADDRESS_REGION_NUM       5
 
 
@@ -142,9 +143,9 @@
 #define SOC_CPU_INTR_NUM                32
 #define SOC_CPU_HAS_FPU                 1
 
-#define SOC_CPU_BREAKPOINTS_NUM         2
-#define SOC_CPU_WATCHPOINTS_NUM         2
-#define SOC_CPU_WATCHPOINT_SIZE         64 // bytes
+#define SOC_CPU_BREAKPOINTS_NUM             2
+#define SOC_CPU_WATCHPOINTS_NUM             2
+#define SOC_CPU_WATCHPOINT_MAX_REGION_SIZE  64 // bytes
 
 /*-------------------------- DAC CAPS ----------------------------------------*/
 #define SOC_DAC_PERIPH_NUM      2
@@ -166,9 +167,6 @@
 
 // digital I/O pad powered by VDD3P3_CPU or VDD_SPI(GPIO_NUM: 1, 3, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 21, 22, 23)
 #define SOC_GPIO_VALID_DIGITAL_IO_PAD_MASK 0xEF0FEAULL
-
-// Support to configure slept status
-#define SOC_GPIO_SUPPORT_SLP_SWITCH  (1)
 
 /*-------------------------- I2C CAPS ----------------------------------------*/
 // ESP32 has 2 I2C
@@ -366,6 +364,7 @@
 #define SOC_PM_SUPPORT_RTC_PERIPH_PD              (1)
 #define SOC_PM_SUPPORT_RTC_FAST_MEM_PD            (1)
 #define SOC_PM_SUPPORT_RTC_SLOW_MEM_PD            (1)
+#define SOC_PM_SUPPORT_MODEM_PD                   (1)     /*!<Modem here includes wifi and btdm */
 
 /*-------------------------- SDMMC CAPS -----------------------------------------*/
 
@@ -387,3 +386,4 @@
 #define SOC_BLE_SUPPORTED               (1)    /*!< Support Bluetooth Low Energy hardware */
 #define SOC_BLE_MESH_SUPPORTED          (1)    /*!< Support BLE MESH */
 #define SOC_BT_CLASSIC_SUPPORTED        (1)    /*!< Support Bluetooth Classic hardware */
+#define SOC_BLE_DEVICE_PRIVACY_SUPPORTED (0)   /*!< Support BLE device privacy mode */

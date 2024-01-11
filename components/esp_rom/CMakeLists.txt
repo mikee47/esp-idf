@@ -21,7 +21,7 @@ else()
                         "patches/esp_rom_regi2c.c"
                         "patches/esp_rom_efuse.c")
 
-    if(CONFIG_HEAP_TLSF_USE_ROM_IMPL AND CONFIG_ESP_ROM_TLSF_CHECK_PATCH)
+    if(CONFIG_HEAP_TLSF_USE_ROM_IMPL AND (CONFIG_ESP_ROM_TLSF_CHECK_PATCH OR CONFIG_HEAP_TLSF_CHECK_PATCH))
         # This file shall be included in the build if TLSF in ROM is activated
         list(APPEND sources "patches/esp_rom_tlsf.c")
     endif()
@@ -35,6 +35,18 @@ endif()
 
 if(CONFIG_SOC_SYSTIMER_SUPPORTED)
     list(APPEND sources "patches/esp_rom_systimer.c")
+endif()
+
+if(CONFIG_ESP_ROM_HAS_FLASH_COUNT_PAGES_BUG OR CONFIG_ESP_ROM_HAS_CACHE_WRITEBACK_BUG)
+    list(APPEND sources "patches/esp_rom_cache_esp32s2_esp32s3.c")
+endif()
+
+if(CONFIG_ESP_ROM_HAS_CACHE_WRITEBACK_BUG)
+    list(APPEND sources "patches/esp_rom_cache_writeback_esp32s3.S")
+endif()
+
+if(CONFIG_ESP_ROM_NEEDS_SET_CACHE_MMU_SIZE)
+    list(APPEND sources "patches/esp_rom_mmap.c")
 endif()
 
 idf_component_register(SRCS ${sources}
@@ -103,7 +115,6 @@ if(BOOTLOADER_BUILD)
 
     elseif(target STREQUAL "esp32c2")
         rom_linker_script("newlib")
-        rom_linker_script("mbedtls")
     endif()
 
 else() # Regular app build
@@ -190,6 +201,10 @@ else() # Regular app build
             rom_linker_script("eco3")
         endif()
 
+        if(CONFIG_ESP32C3_REV_MIN_FULL GREATER_EQUAL 101)
+            rom_linker_script("eco7")
+        endif()
+
     elseif(target STREQUAL "esp32h2")
         rom_linker_script("newlib")
         rom_linker_script("version")
@@ -203,7 +218,10 @@ else() # Regular app build
     elseif(target STREQUAL "esp32c2")
         rom_linker_script("newlib")
         rom_linker_script("version")
-        rom_linker_script("mbedtls")
+
+        if(CONFIG_MBEDTLS_USE_CRYPTO_ROM_IMPL)
+            rom_linker_script("mbedtls")
+        endif()
 
         if(time_t_size EQUAL 8)
             # The ROM functions listed in this linker script depend on sizeof(time_t).
@@ -222,7 +240,7 @@ else() # Regular app build
             # to force the linker to integrate the whole `esp_rom_tlsf.c` object file inside the
             # final binary. This is necessary because tlsf_set_rom_patches is a constructor, thus,
             # there as no explicit reference/call to it in IDF.
-            if(CONFIG_ESP_ROM_TLSF_CHECK_PATCH)
+            if((CONFIG_ESP_ROM_TLSF_CHECK_PATCH OR CONFIG_HEAP_TLSF_CHECK_PATCH))
                 target_link_libraries(${COMPONENT_LIB} PRIVATE "-u tlsf_set_rom_patches")
             endif()
 
@@ -236,5 +254,5 @@ else() # Regular app build
 endif()
 
 if(target STREQUAL "esp32s2")
-    target_sources(${COMPONENT_LIB} PRIVATE "esp32s2/usb_descriptors.c")
+    target_sources(${COMPONENT_LIB} PRIVATE "esp32s2/usb_patches.c")
 endif()

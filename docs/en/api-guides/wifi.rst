@@ -1064,7 +1064,7 @@ The table below shows the reason-code defined in {IDF_TARGET_NAME}. The first co
    * - Reserved
      - 40 ~ 45
      - 40 ~ 45
-     - 
+     -
    * - PEER_INITIATED
      - 46
      - 46
@@ -1241,7 +1241,7 @@ API :cpp:func:`esp_wifi_set_config()` can be used to configure the station. And 
    * - bssid
      - This is valid only when bssid_set is 1; see field “bssid_set”.
    * - channel
-     - If the channel is 0, the station scans the channel 1 ~ N to search for the target AP; otherwise, the station starts by scanning the channel whose value is the same as that of the “channel” field, and then scans others to find the target AP. If you do not know which channel the target AP is running on, set it to 0.
+     - If the channel is 0, the station scans the channel 1 ~ N to search for the target AP; otherwise, the station starts by scanning the channel whose value is the same as that of the “channel” field, and then scans the channel 1 ~ N but skip the specific channel to find the target AP. For example, if the channel is 3, the scan order will be 3, 1, 2, 4,..., N. If you do not know which channel the target AP is running on, set it to 0.
    * - sort_method
      - This field is only for WIFI_ALL_CHANNEL_SCAN.
 
@@ -1579,7 +1579,6 @@ Wi-Fi Vendor IE Configuration
 
 By default, all Wi-Fi management frames are processed by the Wi-Fi driver, and the application can ignore them. However, some applications may have to handle the beacon, probe request, probe response, and other management frames. For example, if you insert some vendor-specific IE into the management frames, it is only the management frames which contain this vendor-specific IE that will be processed. In {IDF_TARGET_NAME}, :cpp:func:`esp_wifi_set_vendor_ie()` and :cpp:func:`esp_wifi_set_vendor_ie_cb()` are responsible for this kind of tasks.
 
-
 Wi-Fi Easy Connect™ (DPP)
 --------------------------
 
@@ -1620,7 +1619,16 @@ Current implementation of 802.11k includes support for beacon measurement report
 
 Refer ESP-IDF example :idf_file:`examples/wifi/roaming/README.md` to set up and use these APIs. Example code only demonstrates how these APIs can be used, and the application should define its own algorithm and cases as required.
 
-.. only:: esp32s2 or esp32c3
+Fast BSS Transition
+---------------------------
+Fast BSS transition (802.11R FT), is a standard to permit continuous connectivity aboard wireless devices in motion, with fast and secure client transitions from one Basic Service Set (abbreviated BSS, and also known as a base station or more colloquially, an access point) to another performed in a nearly seamless manner **avoiding 802.1i 4 way handshake** . 802.11R specifies transitions between access points by redefining the security key negotiation protocol, allowing both the negotiation and requests for wireless resources to occur in parallel. The key derived from the server to be cached in the wireless network, so that a reasonable number of future connections can be based on the cached key, avoiding the 802.1X process
+
+
+{IDF_TARGET_NAME} station supports FT for WPA2-PSK networks. Do note that {IDF_TARGET_NAME} station only support FT over the air protocol only.
+
+A config option :ref:`CONFIG_WPA_11R_SUPPORT` and configuration parameter :cpp:type:`ft_enabled` in :cpp:type:`wifi_sta_config_t` is provided to enable 802.11R support for station. Refer ESP-IDF example :idf_file:`examples/wifi/roaming/README.md` for further details.
+
+.. only:: SOC_WIFI_FTM_SUPPORT
 
     Wi-Fi Location
     -------------------------------
@@ -1646,6 +1654,8 @@ Refer ESP-IDF example :idf_file:`examples/wifi/roaming/README.md` to set up and 
 {IDF_TARGET_NAME} Wi-Fi Power-saving Mode
 -----------------------------------------
 
+This subsection will briefly introduce the concepts and usage related to Wi-Fi Power Saving Mode, for a more detailed introduction please refer to the :doc:`Low Power Mode User Guide <../api-guides/low-power-mode>`
+
 Station Sleep
 ++++++++++++++++++++++
 
@@ -1657,7 +1667,11 @@ In maximum power-saving mode, station wakes up in every listen interval to recei
 
 Call ``esp_wifi_set_ps(WIFI_PS_MIN_MODEM)`` to enable Modem-sleep minimum power-saving mode or ``esp_wifi_set_ps(WIFI_PS_MAX_MODEM)`` to enable Modem-sleep maximum power-saving mode after calling :cpp:func:`esp_wifi_init()`. When station connects to AP, Modem-sleep will start. When station disconnects from AP, Modem-sleep will stop.
 
-Call ``esp_wifi_set_ps(WIFI_PS_NONE)`` to disable Modem-sleep entirely. This has much higher power consumption, but provides minimum latency for receiving Wi-Fi data in real time. When Modem-sleep is enabled, received Wi-Fi data can be delayed for as long as the DTIM period (minimum power-saving mode) or the listen interval (maximum power-saving mode). Disabling Modem-sleep entirely is not possible for Wi-Fi and Bluetooth coexist mode.
+Call ``esp_wifi_set_ps(WIFI_PS_NONE)`` to disable Modem-sleep entirely. This has much higher power consumption, but provides minimum latency for receiving Wi-Fi data in real time. When Modem-sleep is enabled, received Wi-Fi data can be delayed for as long as the DTIM period (minimum power-saving mode) or the listen interval (maximum power-saving mode).
+
+.. only:: SOC_SUPPORT_COEXISTENCE
+
+    Notice that at coexist mode, Wi-Fi would still keep active state in Wi-Fi time slice and only keep sleep state in non Wi-Fi time slice even when calling "esp_wifi_set_ps(WIFI_PS_NONE)". Please refer to :ref:`coexist policy <coexist_policy>`.
 
 The default Modem-sleep mode is WIFI_PS_MIN_MODEM.
 
@@ -1975,7 +1989,7 @@ Theoretically, if the side-effects the API imposes on the Wi-Fi driver or other 
        The recommendations above are only for avoiding side-effects and can be ignored when there are good reasons.
 
    * - Have Wi-Fi connection
-     - When the Wi-Fi connection is already set up, and the sequence is controlled by the application, the latter may impact the sequence control of the Wi-Fi connection as a whole. So, the en_sys_seq need to be true, otherwise ESP_ERR_WIFI_ARG is returned.
+     - When the Wi-Fi connection is already set up, and the sequence is controlled by the application, the latter may impact the sequence control of the Wi-Fi connection as a whole. So, the ``en_sys_seq`` need to be true, otherwise ``ESP_ERR_INVALID_ARG`` is returned.
 
        The MAC-address recommendations in the “No Wi-Fi connection” scenario also apply to this scenario.
 
@@ -1987,7 +2001,7 @@ Theoretically, if the side-effects the API imposes on the Wi-Fi driver or other 
 
        - If the packet is sent from station to AP or from AP to station, the Power Management, More Data, and Re-Transmission bits should be 0. Otherwise, the packet will be discarded by Wi-Fi driver.
 
-       ESP_ERR_WIFI_ARG is returned if any check fails.
+       ``ESP_ERR_INVALID_ARG`` is returned if any check fails.
 
 
 Wi-Fi Sniffer Mode
@@ -2041,12 +2055,12 @@ If the RX antenna mode is :cpp:enumerator:`WIFI_ANT_MODE_AUTO`, the default ante
 Some limitations need to be considered:
 
  - The TX antenna can be set to :cpp:enumerator:`WIFI_ANT_MODE_AUTO` only if the RX antenna mode is :cpp:enumerator:`WIFI_ANT_MODE_AUTO`, because TX antenna selecting algorithm is based on RX antenna in :cpp:enumerator:`WIFI_ANT_MODE_AUTO` type.
+ - When the TX antenna mode or RX antenna mode is configured to :cpp:enumerator:`WIFI_ANT_MODE_AUTO` the switching mode will easily trigger the switching phase, as long as there is deterioration of the RF signal. So in situations where the RF signal is not stable, the antenna switching will occur frequently, resulting in an RF performance that may not meet expectations.
  - Currently, Bluetooth® does not support the multiple antennas feature, so please do not use multiple antennas related APIs.
 
 Following is the recommended scenarios to use the multiple antennas:
 
- - In Wi-Fi mode :cpp:enumerator:`WIFI_MODE_STA`, both RX/TX antenna modes are configured to :cpp:enumerator:`WIFI_ANT_MODE_AUTO`. The Wi-Fi driver selects the better RX/TX antenna automatically.
- - - The RX antenna mode is configured to :cpp:enumerator:`WIFI_ANT_MODE_AUTO`. The TX antenna mode is configured to :cpp:enumerator:`WIFI_ANT_MODE_ANT0` or :cpp:enumerator:`WIFI_ANT_MODE_ANT1`. The applications can choose to always select a specified antenna for TX, or implement their own TX antenna selecting algorithm, e.g., selecting the TX antenna mode based on the channel switch information.
+ - The applications can always choose to select a specified antenna or implement their own antenna selecting algorithm, e.g., selecting the antenna mode based on the information collected by the application. Refer to ESP-IDF example :idf_file:`examples/wifi/antenna/README.md` for the antenna selecting algorithm design.
  - Both RX/TX antenna modes are configured to WIFI_ANT_MODE_ANT0 or WIFI_ANT_MODE_ANT1.
 
 
@@ -2057,10 +2071,11 @@ Generally, following steps can be taken to configure the multiple antennas:
 
  - Configure which GPIOs are connected to the antenna_selects. For example, if four antennas are supported and GPIO20/GPIO21 are connected to antenna_select[0]/antenna_select[1], the configurations look like::
 
-     wifi_ant_gpio_config_t config = {
-         { .gpio_select = 1, .gpio_num = 20 },
-         { .gpio_select = 1, .gpio_num = 21 }
+     wifi_ant_gpio_config_t ant_gpio_config = {
+         .gpio_cfg[0] = { .gpio_select = 1, .gpio_num = 20 },
+         .gpio_cfg[1] = { .gpio_select = 1, .gpio_num = 21 }
      };
+     
  - Configure which antennas are enabled and how RX/TX use the enabled antennas. For example, if antenna1 and antenna3 are enabled, the RX needs to select the better antenna automatically and uses antenna1 as its default antenna, the TX always selects the antenna3. The configuration looks like::
 
      wifi_ant_config_t config = {
@@ -2193,7 +2208,13 @@ Theoretically, the higher priority AC has better performance than the lower prio
 Wi-Fi AMSDU
 -------------------------
 
-{IDF_TARGET_NAME} supports receiving and transmitting AMSDU.
+.. only:: not SOC_SPIRAM_SUPPORTED
+
+    {IDF_TARGET_NAME} supports receiving AMSDU.
+
+.. only:: SOC_SPIRAM_SUPPORTED
+
+    {IDF_TARGET_NAME} supports receiving and transmitting AMSDU. AMSDU TX is disabled by default, since enable AMSDU TX need more memory. Select :ref:`CONFIG_ESP32_WIFI_AMSDU_TX_ENABLED` to enable AMSDU Tx feature, it depends on :ref:`CONFIG_SPIRAM`.
 
 Wi-Fi Fragment
 -------------------------
@@ -2875,7 +2896,7 @@ The parameters not mentioned in the following table should be set to the default
      - **Minimum rank**
         This is the minimum configuration rank of {IDF_TARGET_NAME}. The protocol stack only uses the necessary memory for running. It is suitable for scenarios where there is no requirement for performance and the application requires lots of space.
 
-.. only:: esp32 or esp32s2 or esp32s3
+.. only:: SOC_SPIRAM_SUPPORTED
 
     Using PSRAM
     ++++++++++++++++++++++++++++

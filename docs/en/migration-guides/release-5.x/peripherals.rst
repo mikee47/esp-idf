@@ -70,6 +70,10 @@ API Changes
 
 - API ``hall_sensor_read`` on ESP32 has been removed. Hall sensor is no longer supported on ESP32.
 - API ``adc_set_i2s_data_source`` and ``adc_i2s_mode_init`` have been deprecated. Related enum ``adc_i2s_source_t`` has been deprecated. Please migrate to use ``esp_adc/adc_continuous.h``.
+- API ``adc_digi_filter_reset``, ``adc_digi_filter_set_config``, ``adc_digi_filter_get_config`` and ``adc_digi_filter_enable`` have been removed. These APIs behaviours are not guaranteed. Enum ``adc_digi_filter_idx_t``, ``adc_digi_filter_mode_t`` and structure ``adc_digi_iir_filter_t`` have been removed as well.
+- API ``esp_adc_cal_characterize`` has been deprecated, please migrate to ``adc_cali_create_scheme_curve_fitting`` or ``adc_cali_create_scheme_line_fitting`` instead.
+- API ``esp_adc_cal_raw_to_voltage`` has been deprecated, please migrate to ``adc_cali_raw_to_voltage`` instead.
+- API ``esp_adc_cal_get_voltage`` has been deprecated, please migrate to ``adc_oneshot_get_calibrated_result`` instead.
 
 GPIO
 ----
@@ -368,8 +372,8 @@ LCD
 - ``dc_as_cmd_phase`` is removed. The SPI LCD driver currently doesn't support a 9-bit SPI LCD. Please always use a dedicated GPIO to control the LCD D/C line.
 - The way to register RGB panel event callbacks has been moved from the :cpp:type:`esp_lcd_rgb_panel_config_t` into a separate API :cpp:func:`esp_lcd_rgb_panel_register_event_callbacks`. However, the event callback signature is not changed.
 - Previous ``relax_on_idle`` flag in :cpp:type:`esp_lcd_rgb_panel_config_t` has been renamed into :cpp:member:`esp_lcd_rgb_panel_config_t::refresh_on_demand`, which expresses the same meaning but with a clear name.
-- If the RGB LCD is created with the ``refresh_on_demand`` flag enabled, the driver won't start a refresh in the :cpp:func:`esp_lcd_panel_draw_bitmap`. Now users have to call :cpp:func:`esp_lcd_rgb_panel_refresh` to refresh the screen by themselves.
-- :cpp:type:`esp_lcd_color_space_t` is deprecated, please use :cpp:type:`lcd_color_space_t` to describe the color space, and use :cpp:type:`lcd_color_rgb_endian_t` to describe the data order of RGB color.
+- If the RGB LCD is created with the ``refresh_on_demand`` flag enabled, the driver will not start a refresh in the :cpp:func:`esp_lcd_panel_draw_bitmap`. Now users have to call :cpp:func:`esp_lcd_rgb_panel_refresh` to refresh the screen by themselves.
+- :cpp:type:`esp_lcd_color_space_t` is deprecated, please use :cpp:type:`lcd_color_space_t` to describe the color space, and use :cpp:type:`lcd_rgb_element_order_t` to describe the data order of RGB color.
 
 .. only:: SOC_MCPWM_SUPPORTED
 

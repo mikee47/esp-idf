@@ -173,20 +173,29 @@ static IRAM_ATTR void esp_aes_complete_isr(void *arg)
     }
 }
 
+void esp_aes_intr_alloc(void)
+{
+    if (op_complete_sem == NULL) {
+        esp_err_t ret = esp_intr_alloc(ETS_AES_INTR_SOURCE, 0, esp_aes_complete_isr, NULL, NULL);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to allocate AES interrupt %d", ret);
+            // This should be treated as fatal error as this API would mostly
+            // be invoked within mbedTLS interface. There is no way for the system
+            // to proceed if the AES interrupt allocation fails here.
+            abort();
+        }
+
+        static StaticSemaphore_t op_sem_buf;
+        op_complete_sem = xSemaphoreCreateBinaryStatic(&op_sem_buf);
+        // Static semaphore creation is unlikley to fail but still basic sanity
+        assert(op_complete_sem != NULL);
+    }
+}
+
 static esp_err_t esp_aes_isr_initialise( void )
 {
     aes_hal_interrupt_clear();
     aes_hal_interrupt_enable(true);
-    if (op_complete_sem == NULL) {
-        op_complete_sem = xSemaphoreCreateBinary();
-
-        if (op_complete_sem == NULL) {
-            ESP_LOGE(TAG, "Failed to create intr semaphore");
-            return ESP_FAIL;
-        }
-
-        esp_intr_alloc(ETS_AES_INTR_SOURCE, 0, esp_aes_complete_isr, NULL, NULL);
-    }
 
     /* AES is clocked proportionally to CPU clock, take power management lock */
 #ifdef CONFIG_PM_ENABLE
@@ -239,6 +248,8 @@ static int esp_aes_process_dma(esp_aes_context *ctx, const unsigned char *input,
 /* Output buffers in external ram needs to be 16-byte aligned and DMA cant access input in the iCache mem range,
    reallocate them into internal memory and encrypt in chunks to avoid
    having to malloc too big of a buffer
+
+  The function esp_aes_process_dma_ext_ram zeroises the output buffer in the case of memory allocation failure.
 */
 
 static int esp_aes_process_dma_ext_ram(esp_aes_context *ctx, const unsigned char *input, unsigned char *output, size_t len, uint8_t *stream_out, bool realloc_input, bool realloc_output)
@@ -255,9 +266,9 @@ static int esp_aes_process_dma_ext_ram(esp_aes_context *ctx, const unsigned char
         input_buf = heap_caps_malloc(chunk_len, MALLOC_CAP_DMA);
 
         if (input_buf == NULL) {
+            mbedtls_platform_zeroize(output, len);
             ESP_LOGE(TAG, "Failed to allocate memory");
-            ret = -1;
-            goto cleanup;
+            return -1;
         }
     }
 
@@ -265,9 +276,9 @@ static int esp_aes_process_dma_ext_ram(esp_aes_context *ctx, const unsigned char
         output_buf = heap_caps_malloc(chunk_len, MALLOC_CAP_DMA);
 
         if (output_buf == NULL) {
+            mbedtls_platform_zeroize(output, len);
             ESP_LOGE(TAG, "Failed to allocate memory");
-            ret = -1;
-            goto cleanup;
+            return -1;
         }
     } else {
         output_buf = output;
@@ -311,7 +322,13 @@ cleanup:
     return ret;
 }
 
-/* Encrypt/decrypt the input using DMA */
+/* Encrypt/decrypt the input using DMA
+ * The function esp_aes_process_dma zeroises the output buffer in the case of following conditions:
+ * 1. If key is not written in the hardware
+ * 2. Memory allocation failures
+ * 3. If AES interrupt is enabled and ISR initialisation fails
+ * 4. Failure in any of the AES operations
+ */
 static int esp_aes_process_dma(esp_aes_context *ctx, const unsigned char *input, unsigned char *output, size_t len, uint8_t *stream_out)
 {
     lldesc_t *in_desc_head = NULL, *out_desc_head = NULL;
@@ -335,7 +352,7 @@ static int esp_aes_process_dma(esp_aes_context *ctx, const unsigned char *input,
        key write to hardware. Treat this as a fatal error and zero the output block.
     */
     if (ctx->key_in_hardware != ctx->key_bytes) {
-        bzero(output, len);
+        mbedtls_platform_zeroize(output, len);
         return MBEDTLS_ERR_AES_INVALID_INPUT_LENGTH;
     }
 
@@ -366,15 +383,15 @@ static int esp_aes_process_dma(esp_aes_context *ctx, const unsigned char *input,
             return esp_aes_process_dma_ext_ram(ctx, input, output, len, stream_out, input_needs_realloc, output_needs_realloc);
         }
 
-        /* Set up dma descriptors for input and output */
-        lldesc_num = lldesc_get_required_num(block_bytes);
+        /* Set up dma descriptors for input and output considering the 16 byte alignment requirement for EDMA */
+        lldesc_num = lldesc_get_required_num_constrained(block_bytes, LLDESC_MAX_NUM_PER_DESC_16B_ALIGNED);
 
         /* Allocate both in and out descriptors to save a malloc/free per function call */
         block_desc = heap_caps_calloc(lldesc_num * 2, sizeof(lldesc_t), MALLOC_CAP_DMA);
         if (block_desc == NULL) {
+            mbedtls_platform_zeroize(output, len);
             ESP_LOGE(TAG, "Failed to allocate memory");
-            ret = -1;
-            goto cleanup;
+            return -1;
         }
 
         block_in_desc = block_desc;
@@ -383,6 +400,10 @@ static int esp_aes_process_dma(esp_aes_context *ctx, const unsigned char *input,
         lldesc_setup_link(block_in_desc, input, block_bytes, 0);
         //Limit max inlink descriptor length to be 16 byte aligned, require for EDMA
         lldesc_setup_link_constrained(block_out_desc, output, block_bytes, LLDESC_MAX_NUM_PER_DESC_16B_ALIGNED, 0);
+
+        /* Setup in/out start descriptors */
+        lldesc_append(&in_desc_head, block_in_desc);
+        lldesc_append(&out_desc_head, block_out_desc);
 
         out_desc_tail = &block_out_desc[lldesc_num - 1];
     }
@@ -401,25 +422,19 @@ static int esp_aes_process_dma(esp_aes_context *ctx, const unsigned char *input,
         lldesc_setup_link(&s_stream_in_desc, s_stream_in, AES_BLOCK_BYTES, 0);
         lldesc_setup_link(&s_stream_out_desc, s_stream_out, AES_BLOCK_BYTES, 0);
 
-        if (block_bytes > 0) {
-            /* Link with block descriptors*/
-            block_in_desc[lldesc_num - 1].empty = (uint32_t)&s_stream_in_desc;
-            block_out_desc[lldesc_num - 1].empty = (uint32_t)&s_stream_out_desc;
-        }
+        /* Link with block descriptors */
+        lldesc_append(&in_desc_head, &s_stream_in_desc);
+        lldesc_append(&out_desc_head, &s_stream_out_desc);
 
         out_desc_tail = &s_stream_out_desc;
     }
-
-    // block buffers are sent to DMA first, unless there aren't any
-    in_desc_head =  (block_bytes > 0) ? block_in_desc : &s_stream_in_desc;
-    out_desc_head = (block_bytes > 0) ? block_out_desc : &s_stream_out_desc;
-
 
 #if defined (CONFIG_MBEDTLS_AES_USE_INTERRUPT)
     /* Only use interrupt for long AES operations */
     if (len > AES_DMA_INTR_TRIG_LEN) {
         use_intr = true;
-        if (esp_aes_isr_initialise() == ESP_FAIL) {
+        if (esp_aes_isr_initialise() != ESP_OK) {
+            ESP_LOGE(TAG, "ESP-AES ISR initialisation failed");
             ret = -1;
             goto cleanup;
         }
@@ -453,6 +468,9 @@ static int esp_aes_process_dma(esp_aes_context *ctx, const unsigned char *input,
     }
 
 cleanup:
+    if (ret != 0) {
+        mbedtls_platform_zeroize(output, len);
+    }
     free(block_desc);
     return ret;
 }
@@ -460,10 +478,17 @@ cleanup:
 
 #if SOC_AES_SUPPORT_GCM
 
-/* Encrypt/decrypt with AES-GCM the input using DMA */
+/* Encrypt/decrypt with AES-GCM the input using DMA
+ * The function esp_aes_process_dma_gcm zeroises the output buffer in the case of following conditions:
+ * 1. If key is not written in the hardware
+ * 2. Memory allocation failures
+ * 3. If AES interrupt is enabled and ISR initialisation fails
+ * 4. Failure in any of the AES operations
+ */
 int esp_aes_process_dma_gcm(esp_aes_context *ctx, const unsigned char *input, unsigned char *output, size_t len, lldesc_t *aad_desc, size_t aad_len)
 {
     lldesc_t *in_desc_head = NULL, *out_desc_head = NULL, *len_desc = NULL;
+    lldesc_t *out_desc_tail = NULL; /* pointer to the final output descriptor */
     lldesc_t stream_in_desc, stream_out_desc;
     lldesc_t *block_desc = NULL, *block_in_desc = NULL, *block_out_desc = NULL;
     size_t lldesc_num;
@@ -484,7 +509,7 @@ int esp_aes_process_dma_gcm(esp_aes_context *ctx, const unsigned char *input, un
        key write to hardware. Treat this as a fatal error and zero the output block.
     */
     if (ctx->key_in_hardware != ctx->key_bytes) {
-        bzero(output, len);
+        mbedtls_platform_zeroize(output, len);
         return MBEDTLS_ERR_AES_INVALID_INPUT_LENGTH;
     }
 
@@ -494,9 +519,9 @@ int esp_aes_process_dma_gcm(esp_aes_context *ctx, const unsigned char *input, un
     /* Allocate both in and out descriptors to save a malloc/free per function call, add 1 for length descriptor */
     block_desc = heap_caps_calloc( (lldesc_num * 2) + 1, sizeof(lldesc_t), MALLOC_CAP_DMA);
     if (block_desc == NULL) {
+        mbedtls_platform_zeroize(output, len);
         ESP_LOGE(TAG, "Failed to allocate memory");
-        ret = -1;
-        goto cleanup;
+        return -1;
     }
 
     block_in_desc = block_desc;
@@ -513,6 +538,8 @@ int esp_aes_process_dma_gcm(esp_aes_context *ctx, const unsigned char *input, un
 
         lldesc_append(&in_desc_head, block_in_desc);
         lldesc_append(&out_desc_head, block_out_desc);
+
+        out_desc_tail = &block_out_desc[lldesc_num - 1];
     }
 
     /* Any leftover bytes which are appended as an additional DMA list */
@@ -524,6 +551,8 @@ int esp_aes_process_dma_gcm(esp_aes_context *ctx, const unsigned char *input, un
 
         lldesc_append(&in_desc_head, &stream_in_desc);
         lldesc_append(&out_desc_head, &stream_out_desc);
+
+        out_desc_tail = &stream_out_desc;
     }
 
 
@@ -542,7 +571,8 @@ int esp_aes_process_dma_gcm(esp_aes_context *ctx, const unsigned char *input, un
     /* Only use interrupt for long AES operations */
     if (len > AES_DMA_INTR_TRIG_LEN) {
         use_intr = true;
-        if (esp_aes_isr_initialise() == ESP_FAIL) {
+        if (esp_aes_isr_initialise() != ESP_OK) {
+            ESP_LOGE(TAG, "ESP-AES ISR initialisation failed");
             ret = -1;
             goto cleanup;
         }
@@ -561,7 +591,7 @@ int esp_aes_process_dma_gcm(esp_aes_context *ctx, const unsigned char *input, un
 
     aes_hal_transform_dma_gcm_start(blocks);
 
-    esp_aes_dma_wait_complete(use_intr, out_desc_head);
+    esp_aes_dma_wait_complete(use_intr, out_desc_tail);
 
     aes_hal_transform_dma_finish();
 
@@ -570,6 +600,9 @@ int esp_aes_process_dma_gcm(esp_aes_context *ctx, const unsigned char *input, un
     }
 
 cleanup:
+    if (ret != 0) {
+        mbedtls_platform_zeroize(output, len);
+    }
     free(block_desc);
     return ret;
 }
@@ -603,10 +636,10 @@ int esp_internal_aes_encrypt(esp_aes_context *ctx,
                              const unsigned char input[16],
                              unsigned char output[16] )
 {
-    int r;
+    int r = -1;
 
     if (esp_aes_validate_input(ctx, input, output)) {
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!valid_key_length(ctx)) {
@@ -637,10 +670,10 @@ int esp_internal_aes_decrypt(esp_aes_context *ctx,
                              const unsigned char input[16],
                              unsigned char output[16] )
 {
-    int r;
+    int r = -1;
 
     if (esp_aes_validate_input(ctx, input, output)) {
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!valid_key_length(ctx)) {
@@ -673,10 +706,10 @@ int esp_aes_crypt_ecb(esp_aes_context *ctx,
                       const unsigned char input[16],
                       unsigned char output[16] )
 {
-    int r;
+    int r = -1;
 
     if (esp_aes_validate_input(ctx, input, output)) {
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!valid_key_length(ctx)) {
@@ -703,14 +736,14 @@ int esp_aes_crypt_cbc(esp_aes_context *ctx,
                       const unsigned char *input,
                       unsigned char *output )
 {
-    int r = 0;
+    int r = -1;
     if (esp_aes_validate_input(ctx, input, output)) {
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!iv) {
         ESP_LOGE(TAG, "No IV supplied");
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     /* For CBC input length should be multiple of
@@ -732,13 +765,13 @@ int esp_aes_crypt_cbc(esp_aes_context *ctx,
 
     r = esp_aes_process_dma(ctx, input, output, length, NULL);
     if (r != 0) {
-        esp_aes_release_hardware();
-        return r;
+        goto cleanup;
     }
 
     aes_hal_read_iv(iv);
-    esp_aes_release_hardware();
 
+cleanup:
+    esp_aes_release_hardware();
     return r;
 }
 
@@ -752,18 +785,18 @@ int esp_aes_crypt_cfb8(esp_aes_context *ctx,
                        const unsigned char *input,
                        unsigned char *output )
 {
+    int r = -1;
     unsigned char c;
     unsigned char ov[17];
-    int r = 0;
     size_t block_bytes = length - (length % AES_BLOCK_BYTES);
 
     if (esp_aes_validate_input(ctx, input, output)) {
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!iv) {
         ESP_LOGE(TAG, "No IV supplied");
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
 
@@ -783,12 +816,11 @@ int esp_aes_crypt_cfb8(esp_aes_context *ctx,
         aes_hal_mode_init(ESP_AES_BLOCK_MODE_CFB8);
         aes_hal_set_iv(iv);
         r = esp_aes_process_dma(ctx, input, output, block_bytes, NULL);
-        aes_hal_read_iv(iv);
-
         if (r != 0) {
-            esp_aes_release_hardware();
-            return r;
+            goto cleanup;
         }
+
+        aes_hal_read_iv(iv);
 
         length -= block_bytes;
         input += block_bytes;
@@ -806,8 +838,7 @@ int esp_aes_crypt_cfb8(esp_aes_context *ctx,
 
             r = esp_aes_process_dma(ctx, iv, iv, AES_BLOCK_BYTES, NULL);
             if (r != 0) {
-                esp_aes_release_hardware();
-                return r;
+                goto cleanup;
             }
 
             if ( mode == MBEDTLS_AES_DECRYPT ) {
@@ -823,8 +854,10 @@ int esp_aes_crypt_cfb8(esp_aes_context *ctx,
         }
 
     }
-    esp_aes_release_hardware();
+    r = 0;
 
+cleanup:
+    esp_aes_release_hardware();
     return r;
 }
 
@@ -841,22 +874,21 @@ int esp_aes_crypt_cfb128(esp_aes_context *ctx,
 
 {
     uint8_t c;
-    int r = 0;
     size_t stream_bytes = 0;
     size_t n;
 
     if (esp_aes_validate_input(ctx, input, output)) {
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!iv) {
         ESP_LOGE(TAG, "No IV supplied");
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!iv_off) {
         ESP_LOGE(TAG, "No IV offset supplied");
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!valid_key_length(ctx)) {
@@ -889,7 +921,7 @@ int esp_aes_crypt_cfb128(esp_aes_context *ctx,
         aes_hal_mode_init(ESP_AES_BLOCK_MODE_CFB128);
         aes_hal_set_iv(iv);
 
-        r = esp_aes_process_dma(ctx, input, output, length, iv);
+        int r = esp_aes_process_dma(ctx, input, output, length, iv);
         if (r != 0) {
             esp_aes_release_hardware();
             return r;
@@ -912,7 +944,7 @@ int esp_aes_crypt_cfb128(esp_aes_context *ctx,
     }
 
     *iv_off = n + stream_bytes;
-    return r;
+    return 0;
 }
 
 /*
@@ -926,22 +958,21 @@ int esp_aes_crypt_ofb(esp_aes_context *ctx,
                       const unsigned char *input,
                       unsigned char *output )
 {
-    int r = 0;
     size_t n;
     size_t stream_bytes = 0;
 
     if (esp_aes_validate_input(ctx, input, output)) {
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!iv) {
         ESP_LOGE(TAG, "No IV supplied");
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!iv_off) {
         ESP_LOGE(TAG, "No IV offset supplied");
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     n = *iv_off;
@@ -962,7 +993,7 @@ int esp_aes_crypt_ofb(esp_aes_context *ctx,
         aes_hal_mode_init(ESP_AES_BLOCK_MODE_OFB);
         aes_hal_set_iv(iv);
 
-        r = esp_aes_process_dma(ctx, input, output, length, iv);
+        int r = esp_aes_process_dma(ctx, input, output, length, iv);
         if (r != 0) {
             esp_aes_release_hardware();
             return r;
@@ -974,7 +1005,7 @@ int esp_aes_crypt_ofb(esp_aes_context *ctx,
 
     *iv_off = n + stream_bytes;
 
-    return r;
+    return 0;
 }
 
 /*
@@ -988,21 +1019,25 @@ int esp_aes_crypt_ctr(esp_aes_context *ctx,
                       const unsigned char *input,
                       unsigned char *output )
 {
-    int r = 0;
     size_t n;
 
     if (esp_aes_validate_input(ctx, input, output)) {
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
+    }
+
+    if (!stream_block) {
+        ESP_LOGE(TAG, "No stream supplied");
         return -1;
     }
 
     if (!nonce_counter) {
         ESP_LOGE(TAG, "No nonce supplied");
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     if (!nc_off) {
         ESP_LOGE(TAG, "No nonce offset supplied");
-        return -1;
+        return MBEDTLS_ERR_AES_BAD_INPUT_DATA;
     }
 
     n = *nc_off;
@@ -1028,7 +1063,7 @@ int esp_aes_crypt_ctr(esp_aes_context *ctx,
         aes_hal_mode_init(ESP_AES_BLOCK_MODE_CTR);
         aes_hal_set_iv(nonce_counter);
 
-        r = esp_aes_process_dma(ctx, input, output, length, stream_block);
+        int r = esp_aes_process_dma(ctx, input, output, length, stream_block);
 
         if (r != 0) {
             esp_aes_release_hardware();
@@ -1042,7 +1077,7 @@ int esp_aes_crypt_ctr(esp_aes_context *ctx,
     }
     *nc_off = n + (length % AES_BLOCK_BYTES);
 
-    return r;
+    return 0;
 }
 
 static bool s_check_dma_capable(const void *p)

@@ -109,12 +109,13 @@ struct esp_rgb_panel_t {
     gdma_channel_handle_t dma_chan; // DMA channel handle
     esp_lcd_rgb_panel_vsync_cb_t on_vsync; // VSYNC event callback
     esp_lcd_rgb_panel_bounce_buf_fill_cb_t on_bounce_empty; // callback used to fill a bounce buffer rather than copying from the frame buffer
+    esp_lcd_rgb_panel_bounce_buf_finish_cb_t on_bounce_frame_finish; // callback used to notify when the bounce buffer finish copying the entire frame
     void *user_ctx;                 // Reserved user's data of callback functions
     int x_gap;                      // Extra gap in x coordinate, it's used when calculate the flush window
     int y_gap;                      // Extra gap in y coordinate, it's used when calculate the flush window
     portMUX_TYPE spinlock;          // to protect panel specific resource from concurrent access (e.g. between task and ISR)
     int lcd_clk_flags;              // LCD clock calculation flags
-    int rotate_mask;                     // panel rotate_mask mask, Or'ed of `panel_rotate_mask_t`
+    int rotate_mask;                // panel rotate_mask mask, Or'ed of `panel_rotate_mask_t`
     struct {
         uint32_t disp_en_level: 1;       // The level which can turn on the screen by `disp_gpio_num`
         uint32_t stream_mode: 1;         // If set, the LCD transfers data continuously, otherwise, it stops refreshing the LCD when transaction done
@@ -360,12 +361,16 @@ esp_err_t esp_lcd_rgb_panel_register_event_callbacks(esp_lcd_panel_handle_t pane
     if (callbacks->on_bounce_empty) {
         ESP_RETURN_ON_FALSE(esp_ptr_in_iram(callbacks->on_bounce_empty), ESP_ERR_INVALID_ARG, TAG, "on_bounce_empty callback not in IRAM");
     }
+    if (callbacks->on_bounce_frame_finish) {
+        ESP_RETURN_ON_FALSE(esp_ptr_in_iram(callbacks->on_bounce_frame_finish), ESP_ERR_INVALID_ARG, TAG, "on_bounce_frame_finish callback not in IRAM");
+    }
     if (user_ctx) {
         ESP_RETURN_ON_FALSE(esp_ptr_internal(user_ctx), ESP_ERR_INVALID_ARG, TAG, "user context not in internal RAM");
     }
 #endif // CONFIG_LCD_RGB_ISR_IRAM_SAFE
     rgb_panel->on_vsync = callbacks->on_vsync;
     rgb_panel->on_bounce_empty = callbacks->on_bounce_empty;
+    rgb_panel->on_bounce_frame_finish = callbacks->on_bounce_frame_finish;
     rgb_panel->user_ctx = user_ctx;
     return ESP_OK;
 }
@@ -535,6 +540,12 @@ static esp_err_t rgb_panel_init(esp_lcd_panel_t *panel)
 }
 
 __attribute__((always_inline))
+static inline void copy_pixel_8bpp(uint8_t *to, const uint8_t *from)
+{
+    *to++ = *from++;
+}
+
+__attribute__((always_inline))
 static inline void copy_pixel_16bpp(uint8_t *to, const uint8_t *from)
 {
     *to++ = *from++;
@@ -548,6 +559,119 @@ static inline void copy_pixel_24bpp(uint8_t *to, const uint8_t *from)
     *to++ = *from++;
     *to++ = *from++;
 }
+
+#define COPY_PIXEL_CODE_BLOCK(_bpp)                                                               \
+    switch (rgb_panel->rotate_mask)                                                               \
+    {                                                                                             \
+    case 0:                                                                                       \
+    {                                                                                             \
+        uint8_t *to = fb + (y_start * h_res + x_start) * bytes_per_pixel;                         \
+        for (int y = y_start; y < y_end; y++)                                                     \
+        {                                                                                         \
+            memcpy(to, from, copy_bytes_per_line);                                                \
+            to += bytes_per_line;                                                                 \
+            from += copy_bytes_per_line;                                                          \
+        }                                                                                         \
+        bytes_to_flush = (y_end - y_start) * bytes_per_line;                                      \
+        flush_ptr = fb + y_start * bytes_per_line;                                                \
+    }                                                                                             \
+    break;                                                                                        \
+    case ROTATE_MASK_MIRROR_X:                                                                    \
+        for (int y = y_start; y < y_end; y++)                                                     \
+        {                                                                                         \
+            uint32_t index = (y * h_res + (h_res - 1 - x_start)) * bytes_per_pixel;               \
+            for (size_t x = x_start; x < x_end; x++)                                              \
+            {                                                                                     \
+                copy_pixel_##_bpp##bpp(to + index, from);                                         \
+                index -= bytes_per_pixel;                                                         \
+                from += bytes_per_pixel;                                                          \
+            }                                                                                     \
+        }                                                                                         \
+        bytes_to_flush = (y_end - y_start) * bytes_per_line;                                      \
+        flush_ptr = fb + y_start * bytes_per_line;                                                \
+        break;                                                                                    \
+    case ROTATE_MASK_MIRROR_Y:                                                                    \
+    {                                                                                             \
+        uint8_t *to = fb + ((v_res - 1 - y_start) * h_res + x_start) * bytes_per_pixel;           \
+        for (int y = y_start; y < y_end; y++)                                                     \
+        {                                                                                         \
+            memcpy(to, from, copy_bytes_per_line);                                                \
+            to -= bytes_per_line;                                                                 \
+            from += copy_bytes_per_line;                                                          \
+        }                                                                                         \
+        bytes_to_flush = (y_end - y_start) * bytes_per_line;                                      \
+        flush_ptr = fb + (v_res - y_end) * bytes_per_line;                                        \
+    }                                                                                             \
+    break;                                                                                        \
+    case ROTATE_MASK_MIRROR_X | ROTATE_MASK_MIRROR_Y:                                             \
+        for (int y = y_start; y < y_end; y++)                                                     \
+        {                                                                                         \
+            uint32_t index = ((v_res - 1 - y) * h_res + (h_res - 1 - x_start)) * bytes_per_pixel; \
+            for (size_t x = x_start; x < x_end; x++)                                              \
+            {                                                                                     \
+                copy_pixel_##_bpp##bpp(to + index, from);                                         \
+                index -= bytes_per_pixel;                                                         \
+                from += bytes_per_pixel;                                                          \
+            }                                                                                     \
+        }                                                                                         \
+        bytes_to_flush = (y_end - y_start) * bytes_per_line;                                      \
+        flush_ptr = fb + (v_res - y_end) * bytes_per_line;                                        \
+        break;                                                                                    \
+    case ROTATE_MASK_SWAP_XY:                                                                     \
+        for (int y = y_start; y < y_end; y++)                                                     \
+        {                                                                                         \
+            for (int x = x_start; x < x_end; x++)                                                 \
+            {                                                                                     \
+                uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;              \
+                uint32_t i = (x * h_res + y) * bytes_per_pixel;                                   \
+                copy_pixel_##_bpp##bpp(to + i, from + j);                                         \
+            }                                                                                     \
+        }                                                                                         \
+        bytes_to_flush = (x_end - x_start) * bytes_per_line;                                      \
+        flush_ptr = fb + x_start * bytes_per_line;                                                \
+        break;                                                                                    \
+    case ROTATE_MASK_SWAP_XY | ROTATE_MASK_MIRROR_X:                                              \
+        for (int y = y_start; y < y_end; y++)                                                     \
+        {                                                                                         \
+            for (int x = x_start; x < x_end; x++)                                                 \
+            {                                                                                     \
+                uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;              \
+                uint32_t i = (x * h_res + h_res - 1 - y) * bytes_per_pixel;                       \
+                copy_pixel_##_bpp##bpp(to + i, from + j);                                         \
+            }                                                                                     \
+        }                                                                                         \
+        bytes_to_flush = (x_end - x_start) * bytes_per_line;                                      \
+        flush_ptr = fb + x_start * bytes_per_line;                                                \
+        break;                                                                                    \
+    case ROTATE_MASK_SWAP_XY | ROTATE_MASK_MIRROR_Y:                                              \
+        for (int y = y_start; y < y_end; y++)                                                     \
+        {                                                                                         \
+            for (int x = x_start; x < x_end; x++)                                                 \
+            {                                                                                     \
+                uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;              \
+                uint32_t i = ((v_res - 1 - x) * h_res + y) * bytes_per_pixel;                     \
+                copy_pixel_##_bpp##bpp(to + i, from + j);                                         \
+            }                                                                                     \
+        }                                                                                         \
+        bytes_to_flush = (x_end - x_start) * bytes_per_line;                                      \
+        flush_ptr = fb + (v_res - x_end) * bytes_per_line;                                        \
+        break;                                                                                    \
+    case ROTATE_MASK_SWAP_XY | ROTATE_MASK_MIRROR_X | ROTATE_MASK_MIRROR_Y:                       \
+        for (int y = y_start; y < y_end; y++)                                                     \
+        {                                                                                         \
+            for (int x = x_start; x < x_end; x++)                                                 \
+            {                                                                                     \
+                uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;              \
+                uint32_t i = ((v_res - 1 - x) * h_res + h_res - 1 - y) * bytes_per_pixel;         \
+                copy_pixel_##_bpp##bpp(to + i, from + j);                                         \
+            }                                                                                     \
+        }                                                                                         \
+        bytes_to_flush = (x_end - x_start) * bytes_per_line;                                      \
+        flush_ptr = fb + (v_res - x_end) * bytes_per_line;                                        \
+        break;                                                                                    \
+    default:                                                                                      \
+        break;                                                                                    \
+    }
 
 static esp_err_t rgb_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end, const void *color_data)
 {
@@ -601,198 +725,13 @@ static esp_err_t rgb_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int 
         uint32_t copy_bytes_per_line = (x_end - x_start) * bytes_per_pixel;
         size_t offset = y_start * copy_bytes_per_line + x_start * bytes_per_pixel;
         uint8_t *to = fb;
-        if (2 == bytes_per_pixel) {
-            switch (rgb_panel->rotate_mask) {
-            case 0: {
-                uint8_t *to = fb + (y_start * h_res + x_start) * bytes_per_pixel;
-                for (int y = y_start; y < y_end; y++) {
-                    memcpy(to, from, copy_bytes_per_line);
-                    to += bytes_per_line;
-                    from += copy_bytes_per_line;
-                }
-                bytes_to_flush = (y_end - y_start) * bytes_per_line;
-                flush_ptr = fb + y_start * bytes_per_line;
-            }
-            break;
-            case ROTATE_MASK_MIRROR_X:
-                for (int y = y_start; y < y_end; y++) {
-                    uint32_t index = (y * h_res + (h_res - 1 - x_start)) * bytes_per_pixel;
-                    for (size_t x = x_start; x < x_end; x++) {
-                        copy_pixel_16bpp(to + index, from);
-                        index -= bytes_per_pixel;
-                        from += bytes_per_pixel;
-                    }
-                }
-                bytes_to_flush = (y_end - y_start) * bytes_per_line;
-                flush_ptr = fb + y_start * bytes_per_line;
-                break;
-            case ROTATE_MASK_MIRROR_Y: {
-                uint8_t *to = fb + ((v_res - 1 - y_start) * h_res + x_start) * bytes_per_pixel;
-                for (int y = y_start; y < y_end; y++) {
-                    memcpy(to, from, copy_bytes_per_line);
-                    to -= bytes_per_line;
-                    from += copy_bytes_per_line;
-                }
-                bytes_to_flush = (y_end - y_start) * bytes_per_line;
-                flush_ptr = fb + (v_res - y_end) * bytes_per_line;
-            }
-            break;
-            case ROTATE_MASK_MIRROR_X | ROTATE_MASK_MIRROR_Y:
-                for (int y = y_start; y < y_end; y++) {
-                    uint32_t index = ((v_res - 1 - y) * h_res + (h_res - 1 - x_start)) * bytes_per_pixel;
-                    for (size_t x = x_start; x < x_end; x++) {
-                        copy_pixel_16bpp(to + index, from);
-                        index -= bytes_per_pixel;
-                        from += bytes_per_pixel;
-                    }
-                }
-                bytes_to_flush = (y_end - y_start) * bytes_per_line;
-                flush_ptr = fb + (v_res - y_end) * bytes_per_line;
-                break;
-            case ROTATE_MASK_SWAP_XY:
-                for (int y = y_start; y < y_end; y++) {
-                    for (int x = x_start; x < x_end; x++) {
-                        uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;
-                        uint32_t i = (x * h_res + y) * bytes_per_pixel;
-                        copy_pixel_16bpp(to + i, from + j);
-                    }
-                }
-                bytes_to_flush = (x_end - x_start) * bytes_per_line;
-                flush_ptr = fb + x_start * bytes_per_line;
-                break;
-            case ROTATE_MASK_SWAP_XY | ROTATE_MASK_MIRROR_X:
-                for (int y = y_start; y < y_end; y++) {
-                    for (int x = x_start; x < x_end; x++) {
-                        uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;
-                        uint32_t i = (x * h_res + h_res - 1 - y) * bytes_per_pixel;
-                        copy_pixel_16bpp(to + i, from + j);
-                    }
-                }
-                bytes_to_flush = (x_end - x_start) * bytes_per_line;
-                flush_ptr = fb + x_start * bytes_per_line;
-                break;
-            case ROTATE_MASK_SWAP_XY | ROTATE_MASK_MIRROR_Y:
-                for (int y = y_start; y < y_end; y++) {
-                    for (int x = x_start; x < x_end; x++) {
-                        uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;
-                        uint32_t i = ((v_res - 1 - x) * h_res + y) * bytes_per_pixel;
-                        copy_pixel_16bpp(to + i, from + j);
-                    }
-                }
-                bytes_to_flush = (x_end - x_start) * bytes_per_line;
-                flush_ptr = fb + (v_res - x_end) * bytes_per_line;
-                break;
-            case ROTATE_MASK_SWAP_XY | ROTATE_MASK_MIRROR_X | ROTATE_MASK_MIRROR_Y:
-                for (int y = y_start; y < y_end; y++) {
-                    for (int x = x_start; x < x_end; x++) {
-                        uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;
-                        uint32_t i = ((v_res - 1 - x) * h_res + h_res - 1 - y) * bytes_per_pixel;
-                        copy_pixel_16bpp(to + i, from + j);
-                    }
-                }
-                bytes_to_flush = (x_end - x_start) * bytes_per_line;
-                flush_ptr = fb + (v_res - x_end) * bytes_per_line;
-                break;
-            default:
-                break;
-            }
+        if (1 == bytes_per_pixel) {
+            COPY_PIXEL_CODE_BLOCK(8)
+        } else if (2 == bytes_per_pixel) {
+            COPY_PIXEL_CODE_BLOCK(16)
         } else if (3 == bytes_per_pixel) {
-            switch (rgb_panel->rotate_mask) {
-            case 0: {
-                uint8_t *to = fb + (y_start * h_res + x_start) * bytes_per_pixel;
-                for (int y = y_start; y < y_end; y++) {
-                    memcpy(to, from, copy_bytes_per_line);
-                    to += bytes_per_line;
-                    from += copy_bytes_per_line;
-                }
-                bytes_to_flush = (y_end - y_start) * bytes_per_line;
-                flush_ptr = fb + y_start * bytes_per_line;
-            }
-            break;
-            case ROTATE_MASK_MIRROR_X:
-                for (int y = y_start; y < y_end; y++) {
-                    uint32_t index = (y * h_res + (h_res - 1 - x_start)) * bytes_per_pixel;
-                    for (size_t x = x_start; x < x_end; x++) {
-                        copy_pixel_24bpp(to + index, from);
-                        index -= bytes_per_pixel;
-                        from += bytes_per_pixel;
-                    }
-                }
-                bytes_to_flush = (y_end - y_start) * bytes_per_line;
-                flush_ptr = fb + y_start * bytes_per_line;
-                break;
-            case ROTATE_MASK_MIRROR_Y: {
-                uint8_t *to = fb + ((v_res - 1 - y_start) * h_res + x_start) * bytes_per_pixel;
-                for (int y = y_start; y < y_end; y++) {
-                    memcpy(to, from, copy_bytes_per_line);
-                    to -= bytes_per_line;
-                    from += copy_bytes_per_line;
-                }
-                bytes_to_flush = (y_end - y_start) * bytes_per_line;
-                flush_ptr = fb + (v_res - y_end) * bytes_per_line;
-            }
-            break;
-            case ROTATE_MASK_MIRROR_X | ROTATE_MASK_MIRROR_Y:
-                for (int y = y_start; y < y_end; y++) {
-                    uint32_t index = ((v_res - 1 - y) * h_res + (h_res - 1 - x_start)) * bytes_per_pixel;
-                    for (size_t x = x_start; x < x_end; x++) {
-                        copy_pixel_24bpp(to + index, from);
-                        index -= bytes_per_pixel;
-                        from += bytes_per_pixel;
-                    }
-                }
-                bytes_to_flush = (y_end - y_start) * bytes_per_line;
-                flush_ptr = fb + (v_res - y_end) * bytes_per_line;
-                break;
-            case ROTATE_MASK_SWAP_XY:
-                for (int y = y_start; y < y_end; y++) {
-                    for (int x = x_start; x < x_end; x++) {
-                        uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;
-                        uint32_t i = (x * h_res + y) * bytes_per_pixel;
-                        copy_pixel_24bpp(to + i, from + j);
-                    }
-                }
-                bytes_to_flush = (x_end - x_start) * bytes_per_line;
-                flush_ptr = fb + x_start * bytes_per_line;
-                break;
-            case ROTATE_MASK_SWAP_XY | ROTATE_MASK_MIRROR_X:
-                for (int y = y_start; y < y_end; y++) {
-                    for (int x = x_start; x < x_end; x++) {
-                        uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;
-                        uint32_t i = (x * h_res + h_res - 1 - y) * bytes_per_pixel;
-                        copy_pixel_24bpp(to + i, from + j);
-                    }
-                }
-                bytes_to_flush = (x_end - x_start) * bytes_per_line;
-                flush_ptr = fb + x_start * bytes_per_line;
-                break;
-            case ROTATE_MASK_SWAP_XY | ROTATE_MASK_MIRROR_Y:
-                for (int y = y_start; y < y_end; y++) {
-                    for (int x = x_start; x < x_end; x++) {
-                        uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;
-                        uint32_t i = ((v_res - 1 - x) * h_res + y) * bytes_per_pixel;
-                        copy_pixel_24bpp(to + i, from + j);
-                    }
-                }
-                bytes_to_flush = (x_end - x_start) * bytes_per_line;
-                flush_ptr = fb + (v_res - x_end) * bytes_per_line;
-                break;
-            case ROTATE_MASK_SWAP_XY | ROTATE_MASK_MIRROR_X | ROTATE_MASK_MIRROR_Y:
-                for (int y = y_start; y < y_end; y++) {
-                    for (int x = x_start; x < x_end; x++) {
-                        uint32_t j = y * copy_bytes_per_line + x * bytes_per_pixel - offset;
-                        uint32_t i = ((v_res - 1 - x) * h_res + h_res - 1 - y) * bytes_per_pixel;
-                        copy_pixel_24bpp(to + i, from + j);
-                    }
-                }
-                bytes_to_flush = (x_end - x_start) * bytes_per_line;
-                flush_ptr = fb + (v_res - x_end) * bytes_per_line;
-                break;
-            default:
-                break;
-            }
+            COPY_PIXEL_CODE_BLOCK(24)
         }
-
     }
 
     if (rgb_panel->flags.fb_in_psram && !rgb_panel->bb_size) {
@@ -936,15 +875,15 @@ static esp_err_t lcd_rgb_panel_select_clock_src(esp_rgb_panel_t *panel, lcd_cloc
     }
     lcd_ll_select_clk_src(panel->hal.dev, clk_src);
 
-    if (clk_src == LCD_CLK_SRC_PLL240M || clk_src == LCD_CLK_SRC_PLL160M) {
+    // create pm lock based on different clock source
+    // clock sources like PLL and XTAL will be turned off in light sleep
 #if CONFIG_PM_ENABLE
-        ret = esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "rgb_panel", &panel->pm_lock);
-        ESP_RETURN_ON_ERROR(ret, TAG, "create ESP_PM_APB_FREQ_MAX lock failed");
-        // hold the lock during the whole lifecycle of RGB panel
-        esp_pm_lock_acquire(panel->pm_lock);
-        ESP_LOGD(TAG, "installed ESP_PM_APB_FREQ_MAX lock and hold the lock during the whole panel lifecycle");
+    ret = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "rgb_panel", &panel->pm_lock);
+    ESP_RETURN_ON_ERROR(ret, TAG, "create pm lock failed");
+    // hold the lock during the whole lifecycle of RGB panel
+    esp_pm_lock_acquire(panel->pm_lock);
+    ESP_LOGD(TAG, "installed pm lock and hold the lock during the whole panel lifecycle");
 #endif
-    }
     return ret;
 }
 
@@ -955,7 +894,9 @@ static IRAM_ATTR bool lcd_rgb_panel_fill_bounce_buffer(esp_rgb_panel_t *panel, u
     if (panel->num_fbs == 0) {
         if (panel->on_bounce_empty) {
             // We don't have a frame buffer here; we need to call a callback to refill the bounce buffer
-            need_yield = panel->on_bounce_empty(&panel->base, buffer, panel->bounce_pos_px, panel->bb_size, panel->user_ctx);
+            if (panel->on_bounce_empty(&panel->base, buffer, panel->bounce_pos_px, panel->bb_size, panel->user_ctx)) {
+                need_yield = true;
+            }
         }
     } else {
         // We do have frame buffer; copy from there.
@@ -976,6 +917,11 @@ static IRAM_ATTR bool lcd_rgb_panel_fill_bounce_buffer(esp_rgb_panel_t *panel, u
     if (panel->bounce_pos_px >= panel->fb_size / bytes_per_pixel) {
         panel->bounce_pos_px = 0;
         panel->bb_fb_index = panel->cur_fb_index;
+        if (panel->on_bounce_frame_finish) {
+            if (panel->on_bounce_frame_finish(&panel->base, NULL, panel->user_ctx)) {
+                need_yield = true;
+            }
+        }
     }
     if (panel->num_fbs > 0) {
         // Preload the next bit of buffer from psram

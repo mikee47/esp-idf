@@ -16,6 +16,7 @@
 #include "esp_netif_net_stack.h"
 #include "esp_event.h"
 #include "esp_netif_ppp.h"
+#include "lwip/esp_netif_net_stack.h"
 #include "esp_netif_lwip_internal.h"
 #include <string.h>
 #include "lwip/ip6_addr.h"
@@ -271,13 +272,15 @@ esp_err_t esp_netif_start_ppp(esp_netif_t *esp_netif)
     return ESP_OK;
 }
 
-void esp_netif_lwip_ppp_input(void *ppp_ctx, void *buffer, size_t len, void *eb)
+esp_netif_recv_ret_t esp_netif_lwip_ppp_input(void *ppp_ctx, void *buffer, size_t len, void *eb)
 {
     struct lwip_peer2peer_ctx * obj = ppp_ctx;
     err_t ret = pppos_input_tcpip(obj->ppp, buffer, len);
     if (ret != ERR_OK) {
         ESP_LOGE(TAG, "pppos_input_tcpip failed with %d", ret);
+        return ESP_NETIF_OPTIONAL_RETURN_CODE(ESP_FAIL);
     }
+    return ESP_NETIF_OPTIONAL_RETURN_CODE(ESP_OK);
 }
 
 esp_err_t esp_netif_stop_ppp(netif_related_data_t *netif_related)

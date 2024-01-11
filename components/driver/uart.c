@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -109,9 +109,6 @@ typedef struct {
     int rx_buffered_len;                /*!< UART cached data length */
     int rx_buf_size;                    /*!< RX ring buffer size */
     bool rx_buffer_full_flg;            /*!< RX ring buffer full flag. */
-    uint32_t rx_cur_remain;             /*!< Data number that waiting to be read out in ring buffer item*/
-    uint8_t *rx_ptr;                    /*!< pointer to the current data in ring buffer*/
-    uint8_t *rx_head_ptr;               /*!< pointer to the head of RX item*/
     uint8_t rx_data_buf[SOC_UART_FIFO_LEN]; /*!< Data buffer to stash FIFO data*/
     uint8_t rx_stash_len;               /*!< stashed data length.(When using flow control, after reading out FIFO data, if we fail to push to buffer, we can just stash them.) */
     uint32_t rx_int_usr_mask;           /*!< RX interrupt status. Valid at any time, regardless of RX buffer status. */
@@ -548,28 +545,6 @@ esp_err_t uart_pattern_queue_reset(uart_port_t uart_num, int queue_length)
     return ESP_OK;
 }
 
-#if CONFIG_IDF_TARGET_ESP32
-esp_err_t uart_enable_pattern_det_intr(uart_port_t uart_num, char pattern_chr, uint8_t chr_num, int chr_tout, int post_idle, int pre_idle)
-{
-    ESP_RETURN_ON_FALSE((uart_num < UART_NUM_MAX), ESP_FAIL, UART_TAG, "uart_num error");
-    ESP_RETURN_ON_FALSE(chr_tout >= 0 && chr_tout <= UART_RX_GAP_TOUT_V, ESP_FAIL, UART_TAG, "uart pattern set error\n");
-    ESP_RETURN_ON_FALSE(post_idle >= 0 && post_idle <= UART_POST_IDLE_NUM_V, ESP_FAIL, UART_TAG, "uart pattern set error\n");
-    ESP_RETURN_ON_FALSE(pre_idle >= 0 && pre_idle <= UART_PRE_IDLE_NUM_V, ESP_FAIL, UART_TAG, "uart pattern set error\n");
-    uart_at_cmd_t at_cmd = {0};
-    at_cmd.cmd_char = pattern_chr;
-    at_cmd.char_num = chr_num;
-    at_cmd.gap_tout = chr_tout;
-    at_cmd.pre_idle = pre_idle;
-    at_cmd.post_idle = post_idle;
-    uart_hal_clr_intsts_mask(&(uart_context[uart_num].hal), UART_INTR_CMD_CHAR_DET);
-    UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
-    uart_hal_set_at_cmd_char(&(uart_context[uart_num].hal), &at_cmd);
-    uart_hal_ena_intr_mask(&(uart_context[uart_num].hal), UART_INTR_CMD_CHAR_DET);
-    UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
-    return ESP_OK;
-}
-#endif
-
 esp_err_t uart_enable_pattern_det_baud_intr(uart_port_t uart_num, char pattern_chr, uint8_t chr_num, int chr_tout, int post_idle, int pre_idle)
 {
     ESP_RETURN_ON_FALSE(uart_num < UART_NUM_MAX, ESP_FAIL, UART_TAG, "uart_num error");
@@ -739,17 +714,18 @@ esp_err_t uart_param_config(uart_port_t uart_num, const uart_config_t *uart_conf
     ESP_RETURN_ON_FALSE((uart_config->flow_ctrl < UART_HW_FLOWCTRL_MAX), ESP_FAIL, UART_TAG, "hw_flowctrl mode error");
     ESP_RETURN_ON_FALSE((uart_config->data_bits < UART_DATA_BITS_MAX), ESP_FAIL, UART_TAG, "data bit error");
     uart_module_enable(uart_num);
+    uart_sclk_t clk_src = (uart_config->source_clk) ? uart_config->source_clk : UART_SCLK_DEFAULT; // if no specifying the clock source (soc_module_clk_t starts from 1), then just use the default clock
 #if SOC_UART_SUPPORT_RTC_CLK
-    if (uart_config->source_clk == UART_SCLK_RTC) {
+    if (clk_src == UART_SCLK_RTC) {
         periph_rtc_dig_clk8m_enable();
     }
 #endif
     uint32_t sclk_freq;
-    ESP_RETURN_ON_ERROR(uart_get_sclk_freq(uart_config->source_clk, &sclk_freq), UART_TAG, "Invalid src_clk");
+    ESP_RETURN_ON_ERROR(uart_get_sclk_freq(clk_src, &sclk_freq), UART_TAG, "Invalid src_clk");
 
     UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
     uart_hal_init(&(uart_context[uart_num].hal), uart_num);
-    uart_hal_set_sclk(&(uart_context[uart_num].hal), uart_config->source_clk);
+    uart_hal_set_sclk(&(uart_context[uart_num].hal), clk_src);
     uart_hal_set_baudrate(&(uart_context[uart_num].hal), uart_config->baud_rate, sclk_freq);
     uart_hal_set_parity(&(uart_context[uart_num].hal), uart_config->parity);
     uart_hal_set_data_bit_num(&(uart_context[uart_num].hal), uart_config->data_bits);
@@ -809,6 +785,9 @@ static uint32_t UART_ISR_ATTR uart_enable_tx_write_fifo(uart_port_t uart_num, co
     UART_ENTER_CRITICAL_SAFE(&(uart_context[uart_num].spinlock));
     if (UART_IS_MODE_SET(uart_num, UART_MODE_RS485_HALF_DUPLEX)) {
         uart_hal_set_rts(&(uart_context[uart_num].hal), 0);
+        // If any new things are written to fifo, then we can always clear the previous TX_DONE interrupt bit (if it was set)
+        // Old TX_DONE bit might reset the RTS, leading new tx transmission failure for rs485 mode
+        uart_hal_clr_intsts_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
         uart_hal_ena_intr_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
     }
     uart_hal_write_txfifo(&(uart_context[uart_num].hal), pbuf, len, &sent_len);
@@ -1138,13 +1117,32 @@ esp_err_t uart_wait_tx_done(uart_port_t uart_num, TickType_t ticks_to_wait)
     if (res == pdFALSE) {
         return ESP_ERR_TIMEOUT;
     }
+
+    // Check the enable status of TX_DONE: If already enabled, then let the isr handle the status bit;
+    // If not enabled, then make sure to clear the status bit before enabling the TX_DONE interrupt bit
+    UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
+    bool is_rs485_mode = UART_IS_MODE_SET(uart_num, UART_MODE_RS485_HALF_DUPLEX);
+    bool disabled = !(uart_hal_get_intr_ena_status(&(uart_context[uart_num].hal)) & UART_INTR_TX_DONE);
+    // For RS485 mode, TX_DONE interrupt is enabled for every tx transmission, so there shouldn't be a case of
+    // interrupt not enabled but raw bit is set.
+    assert(!(is_rs485_mode &&
+             disabled &&
+             uart_hal_get_intraw_mask(&(uart_context[uart_num].hal)) & UART_INTR_TX_DONE));
+    // If decided to register for the TX_DONE event, then we should clear any possible old tx transmission status.
+    // The clear operation of RS485 mode should only be handled in isr or when writing to tx fifo.
+    if (disabled && !is_rs485_mode) {
+        uart_hal_clr_intsts_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
+    }
+    UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
     xSemaphoreTake(p_uart_obj[uart_num]->tx_done_sem, 0);
+    // FSM status register update comes later than TX_DONE interrupt raw bit raise
+    // The maximum time takes for FSM status register to update is (6 APB clock cycles + 3 UART core clock cycles)
+    // Therefore, to avoid the situation of TX_DONE bit being cleared but FSM didn't be recognized as IDLE (which
+    // would lead to timeout), a delay of 2us is added in between.
+    esp_rom_delay_us(2);
     if (uart_hal_is_tx_idle(&(uart_context[uart_num].hal))) {
         xSemaphoreGive(p_uart_obj[uart_num]->tx_mux);
         return ESP_OK;
-    }
-    if (!UART_IS_MODE_SET(uart_num, UART_MODE_RS485_HALF_DUPLEX)) {
-        uart_hal_clr_intsts_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
     }
     UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
     uart_hal_ena_intr_mask(&(uart_context[uart_num].hal), UART_INTR_TX_DONE);
@@ -1280,53 +1278,35 @@ int uart_read_bytes(uart_port_t uart_num, void *buf, uint32_t length, TickType_t
     ESP_RETURN_ON_FALSE((buf), (-1), UART_TAG, "uart data null");
     ESP_RETURN_ON_FALSE((p_uart_obj[uart_num]), (-1), UART_TAG, "uart driver error");
     uint8_t *data = NULL;
-    size_t size;
+    size_t size = 0;
     size_t copy_len = 0;
-    int len_tmp;
     if (xSemaphoreTake(p_uart_obj[uart_num]->rx_mux, (TickType_t)ticks_to_wait) != pdTRUE) {
         return -1;
     }
     while (length) {
-        if (p_uart_obj[uart_num]->rx_cur_remain == 0) {
-            data = (uint8_t *) xRingbufferReceive(p_uart_obj[uart_num]->rx_ring_buf, &size, (TickType_t) ticks_to_wait);
-            if (data) {
-                p_uart_obj[uart_num]->rx_head_ptr = data;
-                p_uart_obj[uart_num]->rx_ptr = data;
-                p_uart_obj[uart_num]->rx_cur_remain = size;
+        data = (uint8_t *) xRingbufferReceiveUpTo(p_uart_obj[uart_num]->rx_ring_buf, &size, (TickType_t) ticks_to_wait, length);
+        if (!data) {
+            // When using dual cores, `rx_buffer_full_flg` may read and write on different cores at same time,
+            // which may lose synchronization. So we also need to call `uart_check_buf_full` once when ringbuffer is empty
+            // to solve the possible asynchronous issues.
+            if (uart_check_buf_full(uart_num)) {
+                // This condition will never be true if `uart_read_bytes`
+                // and `uart_rx_intr_handler_default` are scheduled on the same core.
+                continue;
             } else {
-                //When using dual cores, `rx_buffer_full_flg` may read and write on different cores at same time,
-                //which may lose synchronization. So we also need to call `uart_check_buf_full` once when ringbuffer is empty
-                //to solve the possible asynchronous issues.
-                if (uart_check_buf_full(uart_num)) {
-                    //This condition will never be true if `uart_read_bytes`
-                    //and `uart_rx_intr_handler_default` are scheduled on the same core.
-                    continue;
-                } else {
-                    xSemaphoreGive(p_uart_obj[uart_num]->rx_mux);
-                    return copy_len;
-                }
+                // Timeout while not fetched all requested length
+                break;
             }
         }
-        if (p_uart_obj[uart_num]->rx_cur_remain > length) {
-            len_tmp = length;
-        } else {
-            len_tmp = p_uart_obj[uart_num]->rx_cur_remain;
-        }
-        memcpy((uint8_t *)buf + copy_len, p_uart_obj[uart_num]->rx_ptr, len_tmp);
+        memcpy((uint8_t *)buf + copy_len, data, size);
         UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
-        p_uart_obj[uart_num]->rx_buffered_len -= len_tmp;
-        uart_pattern_queue_update(uart_num, len_tmp);
-        p_uart_obj[uart_num]->rx_ptr += len_tmp;
+        p_uart_obj[uart_num]->rx_buffered_len -= size;
+        uart_pattern_queue_update(uart_num, size);
         UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
-        p_uart_obj[uart_num]->rx_cur_remain -= len_tmp;
-        copy_len += len_tmp;
-        length -= len_tmp;
-        if (p_uart_obj[uart_num]->rx_cur_remain == 0) {
-            vRingbufferReturnItem(p_uart_obj[uart_num]->rx_ring_buf, p_uart_obj[uart_num]->rx_head_ptr);
-            p_uart_obj[uart_num]->rx_head_ptr = NULL;
-            p_uart_obj[uart_num]->rx_ptr = NULL;
-            uart_check_buf_full(uart_num);
-        }
+        copy_len += size;
+        length -= size;
+        vRingbufferReturnItem(p_uart_obj[uart_num]->rx_ring_buf, data);
+        uart_check_buf_full(uart_num);
     }
 
     xSemaphoreGive(p_uart_obj[uart_num]->rx_mux);
@@ -1368,25 +1348,15 @@ esp_err_t uart_flush_input(uart_port_t uart_num)
     uart_hal_disable_intr_mask(&(uart_context[uart_num].hal), UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);
     UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
     while (true) {
-        if (p_uart->rx_head_ptr) {
-            vRingbufferReturnItem(p_uart->rx_ring_buf, p_uart->rx_head_ptr);
-            UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
-            p_uart_obj[uart_num]->rx_buffered_len -= p_uart->rx_cur_remain;
-            uart_pattern_queue_update(uart_num, p_uart->rx_cur_remain);
-            UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
-            p_uart->rx_ptr = NULL;
-            p_uart->rx_cur_remain = 0;
-            p_uart->rx_head_ptr = NULL;
-        }
-        data = (uint8_t*) xRingbufferReceive(p_uart->rx_ring_buf, &size, (TickType_t) 0);
-        if(data == NULL) {
+        data = (uint8_t *) xRingbufferReceive(p_uart->rx_ring_buf, &size, (TickType_t) 0);
+        if (data == NULL) {
             bool error = false;
             UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
-            if( p_uart_obj[uart_num]->rx_buffered_len != 0 ) {
+            if (p_uart_obj[uart_num]->rx_buffered_len != 0) {
                 p_uart_obj[uart_num]->rx_buffered_len = 0;
                 error = true;
             }
-            //We also need to clear the `rx_buffer_full_flg` here.
+            // We also need to clear the `rx_buffer_full_flg` here.
             p_uart_obj[uart_num]->rx_buffer_full_flg = false;
             UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));
             if (error) {
@@ -1410,9 +1380,6 @@ esp_err_t uart_flush_input(uart_port_t uart_num)
             }
         }
     }
-    p_uart->rx_ptr = NULL;
-    p_uart->rx_cur_remain = 0;
-    p_uart->rx_head_ptr = NULL;
     uart_hal_rxfifo_rst(&(uart_context[uart_num].hal));
     /* Only re-enable UART_INTR_RXFIFO_TOUT or UART_INTR_RXFIFO_FULL if they
      * were explicitly enabled by the user. */
@@ -1593,10 +1560,7 @@ esp_err_t uart_driver_install(uart_port_t uart_num, int rx_buffer_size, int tx_b
         p_uart_obj[uart_num]->rx_buffered_len = 0;
         p_uart_obj[uart_num]->rx_buffer_full_flg = false;
         p_uart_obj[uart_num]->tx_waiting_fifo = false;
-        p_uart_obj[uart_num]->rx_ptr = NULL;
-        p_uart_obj[uart_num]->rx_cur_remain = 0;
         p_uart_obj[uart_num]->rx_int_usr_mask = UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT;
-        p_uart_obj[uart_num]->rx_head_ptr = NULL;
         p_uart_obj[uart_num]->tx_buf_size = tx_buffer_size;
         p_uart_obj[uart_num]->uart_select_notif_callback = NULL;
         xSemaphoreGive(p_uart_obj[uart_num]->tx_fifo_sem);

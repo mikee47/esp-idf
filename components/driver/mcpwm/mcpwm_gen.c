@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -86,10 +86,11 @@ esp_err_t mcpwm_new_generator(mcpwm_oper_handle_t oper, const mcpwm_generator_co
     // GPIO configuration
     gpio_config_t gpio_conf = {
         .intr_type = GPIO_INTR_DISABLE,
-        .mode = GPIO_MODE_OUTPUT | (config->flags.io_loop_back ? GPIO_MODE_INPUT : 0), // also enable the input path if `io_loop_back` is enabled
+        // also enable the input path if `io_loop_back` is enabled
+        .mode = (config->flags.io_od_mode ? GPIO_MODE_OUTPUT_OD : GPIO_MODE_OUTPUT) | (config->flags.io_loop_back ? GPIO_MODE_INPUT : 0),
         .pin_bit_mask = (1ULL << config->gen_gpio_num),
-        .pull_down_en = false,
-        .pull_up_en = true,
+        .pull_down_en = config->flags.pull_down,
+        .pull_up_en = config->flags.pull_up,
     };
     ESP_GOTO_ON_ERROR(gpio_config(&gpio_conf), err, TAG, "config gen GPIO failed");
     esp_rom_gpio_connect_out_signal(config->gen_gpio_num,
@@ -148,6 +149,28 @@ esp_err_t mcpwm_generator_set_force_level(mcpwm_gen_handle_t gen, int level, boo
     return ESP_OK;
 }
 
+esp_err_t mcpwm_generator_set_action_on_timer_event(mcpwm_gen_handle_t gen, mcpwm_gen_timer_event_action_t ev_act)
+{
+    ESP_RETURN_ON_FALSE(gen, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(ev_act.event != MCPWM_TIMER_EVENT_INVALID, ESP_ERR_INVALID_ARG, TAG, "invalid event");
+    mcpwm_oper_t *oper = gen->oper;
+    mcpwm_group_t *group = oper->group;
+    mcpwm_timer_t *timer = oper->timer;
+    ESP_RETURN_ON_FALSE(timer, ESP_ERR_INVALID_STATE, TAG, "no timer is connected to the operator");
+    bool invalid_utep = (timer->count_mode == MCPWM_TIMER_COUNT_MODE_UP_DOWN) &&
+                        (ev_act.direction == MCPWM_TIMER_DIRECTION_UP) &&
+                        (ev_act.event == MCPWM_TIMER_EVENT_FULL);
+    bool invalid_dtez = (timer->count_mode == MCPWM_TIMER_COUNT_MODE_UP_DOWN) &&
+                        (ev_act.direction == MCPWM_TIMER_DIRECTION_DOWN) &&
+                        (ev_act.event == MCPWM_TIMER_EVENT_EMPTY);
+    if (invalid_utep || invalid_dtez) {
+        ESP_RETURN_ON_FALSE(false, ESP_ERR_INVALID_ARG, TAG, "UTEP and DTEZ can't be reached under MCPWM_TIMER_COUNT_MODE_UP_DOWN mode");
+    }
+    mcpwm_ll_generator_set_action_on_timer_event(group->hal.dev, oper->oper_id, gen->gen_id,
+            ev_act.direction, ev_act.event, ev_act.action);
+    return ESP_OK;
+}
+
 esp_err_t mcpwm_generator_set_actions_on_timer_event(mcpwm_gen_handle_t gen, mcpwm_gen_timer_event_action_t ev_act, ...)
 {
     ESP_RETURN_ON_FALSE(gen, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
@@ -179,6 +202,17 @@ esp_err_t mcpwm_generator_set_actions_on_timer_event(mcpwm_gen_handle_t gen, mcp
     return ESP_OK;
 }
 
+esp_err_t mcpwm_generator_set_action_on_compare_event(mcpwm_gen_handle_t gen, mcpwm_gen_compare_event_action_t ev_act)
+{
+    ESP_RETURN_ON_FALSE(gen, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(ev_act.comparator, ESP_ERR_INVALID_ARG, TAG, "invalid comparator");
+    mcpwm_oper_t *oper = gen->oper;
+    mcpwm_group_t *group = oper->group;
+    mcpwm_ll_generator_set_action_on_compare_event(group->hal.dev, oper->oper_id, gen->gen_id,
+            ev_act.direction, ev_act.comparator->cmpr_id, ev_act.action);
+    return ESP_OK;
+}
+
 esp_err_t mcpwm_generator_set_actions_on_compare_event(mcpwm_gen_handle_t gen, mcpwm_gen_compare_event_action_t ev_act, ...)
 {
     ESP_RETURN_ON_FALSE(gen, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
@@ -193,6 +227,17 @@ esp_err_t mcpwm_generator_set_actions_on_compare_event(mcpwm_gen_handle_t gen, m
         ev_act_itor = va_arg(it, mcpwm_gen_compare_event_action_t);
     }
     va_end(it);
+    return ESP_OK;
+}
+
+esp_err_t mcpwm_generator_set_action_on_brake_event(mcpwm_gen_handle_t gen, mcpwm_gen_brake_event_action_t ev_act)
+{
+    ESP_RETURN_ON_FALSE(gen, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(ev_act.brake_mode != MCPWM_OPER_BRAKE_MODE_INVALID, ESP_ERR_INVALID_ARG, TAG, "invalid brake mode");
+    mcpwm_oper_t *oper = gen->oper;
+    mcpwm_group_t *group = oper->group;
+    mcpwm_ll_generator_set_action_on_brake_event(group->hal.dev, oper->oper_id, gen->gen_id,
+            ev_act.direction, ev_act.brake_mode, ev_act.action);
     return ESP_OK;
 }
 
@@ -213,6 +258,60 @@ esp_err_t mcpwm_generator_set_actions_on_brake_event(mcpwm_gen_handle_t gen, mcp
     return ESP_OK;
 }
 
+esp_err_t mcpwm_generator_set_action_on_fault_event(mcpwm_gen_handle_t gen, mcpwm_gen_fault_event_action_t ev_act)
+{
+    ESP_RETURN_ON_FALSE(gen, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    mcpwm_fault_t *fault = ev_act.fault;
+    ESP_RETURN_ON_FALSE(fault->type == MCPWM_FAULT_TYPE_GPIO, ESP_ERR_NOT_SUPPORTED, TAG, "not supported fault type");
+    mcpwm_oper_t *oper = gen->oper;
+    mcpwm_group_t *group = oper->group;
+    // check the remained triggers
+    int trigger_id = -1;
+    portENTER_CRITICAL(&oper->spinlock);
+    for (int i = 0; i < SOC_MCPWM_TRIGGERS_PER_OPERATOR; i++) {
+        if (oper->triggers[i] == MCPWM_TRIGGER_NO_ASSIGN) {
+            trigger_id = i;
+            oper->triggers[i] = MCPWM_TRIGGER_GPIO_FAULT;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&oper->spinlock);
+    ESP_RETURN_ON_FALSE(trigger_id >= 0, ESP_ERR_NOT_FOUND, TAG, "no free trigger in operator (%d,%d)", group->group_id, oper->oper_id);
+    mcpwm_gpio_fault_t *gpio_fault = __containerof(fault, mcpwm_gpio_fault_t, base);
+    mcpwm_ll_operator_set_trigger_from_gpio_fault(group->hal.dev, oper->oper_id, trigger_id, gpio_fault->fault_id);
+    mcpwm_ll_generator_set_action_on_trigger_event(group->hal.dev, oper->oper_id, gen->gen_id,
+            ev_act.direction, trigger_id, ev_act.action);
+    return ESP_OK;
+}
+
+esp_err_t mcpwm_generator_set_action_on_sync_event(mcpwm_gen_handle_t gen, mcpwm_gen_sync_event_action_t ev_act)
+{
+    ESP_RETURN_ON_FALSE(gen, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    mcpwm_oper_t *oper = gen->oper;
+    mcpwm_group_t *group = oper->group;
+    // check the remained triggers
+    int trigger_id = -1;
+    int trigger_sync_used = 0;
+    portENTER_CRITICAL(&oper->spinlock);
+    for (int i = 0; i < SOC_MCPWM_TRIGGERS_PER_OPERATOR; i++) {
+        if (oper->triggers[i] == MCPWM_TRIGGER_SYNC_EVENT) {
+            trigger_sync_used = 1;
+            break;
+        } else if (oper->triggers[i] == MCPWM_TRIGGER_NO_ASSIGN) {
+            trigger_id = i;
+            oper->triggers[i] = MCPWM_TRIGGER_SYNC_EVENT;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&oper->spinlock);
+    ESP_RETURN_ON_FALSE(!trigger_sync_used, ESP_ERR_INVALID_STATE, TAG, "only one sync supported");
+    ESP_RETURN_ON_FALSE(trigger_id >= 0, ESP_ERR_NOT_FOUND, TAG, "no free trigger in operator (%d,%d)", group->group_id, oper->oper_id);
+    mcpwm_ll_operator_set_trigger_from_sync(group->hal.dev, oper->oper_id, trigger_id);
+    mcpwm_ll_generator_set_action_on_trigger_event(group->hal.dev, oper->oper_id, gen->gen_id,
+            ev_act.direction, trigger_id, ev_act.action);
+    return ESP_OK;
+}
+
 esp_err_t mcpwm_generator_set_dead_time(mcpwm_gen_handle_t in_generator, mcpwm_gen_handle_t out_generator, const mcpwm_dead_time_config_t *config)
 {
     ESP_RETURN_ON_FALSE(in_generator && out_generator && config, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
@@ -223,6 +322,36 @@ esp_err_t mcpwm_generator_set_dead_time(mcpwm_gen_handle_t in_generator, mcpwm_g
     mcpwm_group_t *group = oper->group;
     mcpwm_hal_context_t *hal = &group->hal;
     int oper_id = oper->oper_id;
+
+    // one delay module can only be used by one generator at a time
+    bool delay_module_conflict = false;
+    portENTER_CRITICAL(&oper->spinlock);
+    if (config->posedge_delay_ticks) {
+        if (oper->posedge_delay_owner && oper->posedge_delay_owner != in_generator) {
+            delay_module_conflict = true;
+        }
+    }
+    if (config->negedge_delay_ticks) {
+        if (oper->negedge_delay_owner && oper->negedge_delay_owner != in_generator) {
+            delay_module_conflict = true;
+        }
+    }
+    if (!delay_module_conflict) {
+        if (config->posedge_delay_ticks) {
+            // set owner if delay module is used
+            oper->posedge_delay_owner = in_generator;
+        } else if (oper->posedge_delay_owner == in_generator) {
+            // clear owner if delay module is previously used by in_generator, but now it is not used
+            oper->posedge_delay_owner = NULL;
+        }
+        if (config->negedge_delay_ticks) {
+            oper->negedge_delay_owner = in_generator;
+        } else if (oper->negedge_delay_owner == in_generator) {
+            oper->negedge_delay_owner = NULL;
+        }
+    }
+    portEXIT_CRITICAL(&oper->spinlock);
+    ESP_RETURN_ON_FALSE(!delay_module_conflict, ESP_ERR_INVALID_STATE, TAG, "delay module is in use by other generator");
 
     // Note: to better understand the following code, you should read the deadtime module topology diagram in the TRM
     // check if we want to bypass the deadtime module

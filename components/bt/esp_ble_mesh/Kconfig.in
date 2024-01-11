@@ -6,13 +6,22 @@ if BLE_MESH
         help
             It is a temporary solution and needs further modifications.
 
+    config BLE_MESH_RANDOM_ADV_INTERVAL
+        bool "Support using random adv interval for mesh packets"
+        select BT_BLE_HIGH_DUTY_ADV_INTERVAL if BT_BLUEDROID_ENABLED
+        default n
+        help
+            Enable this option to allow using random advertising interval
+            for mesh packets. And this could help avoid collision of
+            advertising packets.
+
     config BLE_MESH_USE_DUPLICATE_SCAN
         bool "Support Duplicate Scan in BLE Mesh"
-        depends on BT_BLUEDROID_ENABLED
         select BTDM_BLE_SCAN_DUPL if IDF_TARGET_ESP32
         select BTDM_BLE_MESH_SCAN_DUPL_EN if IDF_TARGET_ESP32
         select BT_CTRL_BLE_SCAN_DUPL if IDF_TARGET_ESP32C3
         select BT_CTRL_BLE_MESH_SCAN_DUPL_EN if IDF_TARGET_ESP32C3
+        select BT_NIMBLE_VS_SUPPORT if BT_NIMBLE_ENABLED
         default y
         help
             Enable this option to allow using specific duplicate scan filter
@@ -1131,6 +1140,19 @@ if BLE_MESH
             help
                 This option adds extra self-tests which are run every time BLE Mesh
                 networking is initialized.
+
+        config BLE_MESH_BQB_TEST
+            bool "Enable BLE Mesh specific internal test"
+            default n
+            help
+                This option is used to enable some internal functions for auto-pts test.
+
+        config BLE_MESH_BQB_TEST_LOG
+            bool
+            depends on BLE_MESH_BQB_TEST
+            default y
+            help
+                This option is used to enable the log of auto-pts test.
 
         if BLE_MESH_SELF_TEST
 

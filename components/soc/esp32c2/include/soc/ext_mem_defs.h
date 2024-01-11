@@ -15,18 +15,17 @@ extern "C" {
 #include <stdint.h>
 
 /*IRAM0 is connected with Cache IBUS0*/
-#define IRAM0_ADDRESS_LOW               0x40000000
-#define IRAM0_ADDRESS_HIGH(page_size)              IRAM0_CACHE_ADDRESS_HIGH(page_size)
-#define IRAM0_CACHE_ADDRESS_LOW         0x42000000
-#define IRAM0_CACHE_ADDRESS_HIGH(page_size)        (IRAM0_CACHE_ADDRESS_LOW + ((page_size) * 64)) // MMU has 64 pages
+#define IRAM0_ADDRESS_LOW                      0x4037C000
+#define IRAM0_ADDRESS_HIGH                     0x403C0000
+#define IRAM0_CACHE_ADDRESS_LOW                0x42000000
+#define IRAM0_CACHE_ADDRESS_HIGH(page_size)    (IRAM0_CACHE_ADDRESS_LOW + ((page_size) * 64)) // MMU has 64 pages
 
 /*DRAM0 is connected with Cache DBUS0*/
-#define DRAM0_ADDRESS_LOW               0x3C000000
-#define DRAM0_ADDRESS_HIGH              0x40000000
-#define DRAM0_CACHE_ADDRESS_LOW         0x3C000000
-#define DRAM0_CACHE_ADDRESS_HIGH(page_size)        (DRAM0_CACHE_ADDRESS_LOW + ((page_size) * 64))
-#define DRAM0_CACHE_OPERATION_HIGH(page_size)      DRAM0_CACHE_ADDRESS_HIGH(page_size)
-#define ESP_CACHE_TEMP_ADDR             0x3C000000
+#define DRAM0_ADDRESS_LOW                      0x3FCA0000
+#define DRAM0_ADDRESS_HIGH                     0x3FCE0000
+#define DRAM0_CACHE_ADDRESS_LOW                0x3C000000
+#define DRAM0_CACHE_ADDRESS_HIGH(page_size)    (DRAM0_CACHE_ADDRESS_LOW + ((page_size) * 64)) // MMU has 64 pages
+#define DRAM0_CACHE_OPERATION_HIGH(page_size)  DRAM0_CACHE_ADDRESS_HIGH(page_size)
 
 #define BUS_SIZE(bus_name, page_size)                 (bus_name##_ADDRESS_HIGH(page_size) - bus_name##_ADDRESS_LOW)
 #define ADDRESS_IN_BUS(bus_name, vaddr, page_size)    ((vaddr) >= bus_name##_ADDRESS_LOW && (vaddr) < bus_name##_ADDRESS_HIGH(page_size))
@@ -52,7 +51,7 @@ extern "C" {
 #define CACHE_IROM_MMU_END              Cache_Get_IROM_MMU_End()
 #define CACHE_IROM_MMU_SIZE             (CACHE_IROM_MMU_END - CACHE_IROM_MMU_START)
 
-#define CACHE_DROM_MMU_START            CACHE_IROM_MMU_END
+#define CACHE_DROM_MMU_START            0
 #define CACHE_DROM_MMU_END              Cache_Get_DROM_MMU_End()
 #define CACHE_DROM_MMU_SIZE             (CACHE_DROM_MMU_END - CACHE_DROM_MMU_START)
 
@@ -84,7 +83,7 @@ extern "C" {
 
 /**
  * Max MMU available paddr page num.
- * `MMU_MAX_PADDR_PAGE_NUM * CONFIG_MMU_PAGE_SIZE` means the max paddr address supported by the MMU. e.g.:
+ * `MMU_MAX_PADDR_PAGE_NUM * SOC_MMU_PAGE_SIZE` means the max paddr address supported by the MMU. e.g.:
  * 64 * 64KB, means MMU can support 4MB paddr at most
  */
 #define MMU_MAX_PADDR_PAGE_NUM    64

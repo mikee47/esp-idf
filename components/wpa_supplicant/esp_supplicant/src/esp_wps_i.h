@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -28,6 +28,14 @@ enum wps_sig_type {
 };
 #endif
 
+#ifdef ESP_SUPPLICANT
+enum wps_sm_state{
+     WAIT_START,
+     WPA_MESG,
+     WPA_FAIL
+};
+#endif /* ESP_SUPPLICANT */
+
 #define WPS_IGNORE_SEL_REG_MAX_CNT	4
 
 #define WPS_MAX_DIS_AP_NUM	10
@@ -47,6 +55,7 @@ struct discard_ap_list_t{
 
 #define WPS_OUTBUF_SIZE 500
 struct wps_sm {
+    u8 state;
     struct wps_config *wps_cfg;
     struct wps_context *wps_ctx;
     struct wps_data *wps;
@@ -117,5 +126,7 @@ static inline int wps_set_status(uint32_t status)
 {
     return esp_wifi_set_wps_status_internal(status);
 }
+
+bool is_wps_enabled(void);
 int wps_init_cfg_pin(struct wps_config *cfg);
 void wifi_station_wps_eapol_start_handle(void *data, void *user_ctx);

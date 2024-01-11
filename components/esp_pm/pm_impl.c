@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2016-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2016-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdint.h>
 #include <sys/param.h>
 
 #include "esp_attr.h"
@@ -18,6 +19,7 @@
 #include "esp_private/crosscore_int.h"
 
 #include "soc/rtc.h"
+#include "soc/soc_caps.h"
 #include "hal/uart_ll.h"
 #include "hal/uart_types.h"
 #include "driver/uart.h"
@@ -33,6 +35,10 @@
 #include "esp_private/pm_trace.h"
 #include "esp_private/esp_timer_private.h"
 #include "esp_private/esp_clk.h"
+
+#if SOC_SPI_MEM_SUPPORT_TIME_TUNING
+#include "esp_private/spi_flash_os.h"
+#endif
 
 #include "esp_sleep.h"
 
@@ -286,25 +292,9 @@ esp_err_t esp_pm_configure(const void* vconfig)
                   min_freq_mhz,
                   config->light_sleep_enable ? "ENABLED" : "DISABLED");
 
-    portENTER_CRITICAL(&s_switch_lock);
-
-    bool res __attribute__((unused));
-    res = rtc_clk_cpu_freq_mhz_to_config(max_freq_mhz, &s_cpu_freq_by_mode[PM_MODE_CPU_MAX]);
-    assert(res);
-    res = rtc_clk_cpu_freq_mhz_to_config(apb_max_freq, &s_cpu_freq_by_mode[PM_MODE_APB_MAX]);
-    assert(res);
-    res = rtc_clk_cpu_freq_mhz_to_config(min_freq_mhz, &s_cpu_freq_by_mode[PM_MODE_APB_MIN]);
-    assert(res);
-    s_cpu_freq_by_mode[PM_MODE_LIGHT_SLEEP] = s_cpu_freq_by_mode[PM_MODE_APB_MIN];
-    s_light_sleep_en = config->light_sleep_enable;
-    s_config_changed = true;
-    portEXIT_CRITICAL(&s_switch_lock);
-
-#if CONFIG_PM_SLP_DISABLE_GPIO && SOC_GPIO_SUPPORT_SLP_SWITCH
-    esp_sleep_enable_gpio_switch(config->light_sleep_enable);
-#endif
 
 #if CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP && SOC_PM_SUPPORT_CPU_PD
+    // must be initialized before s_light_sleep_en set true, to avoid entering idle and sleep in this function.
     esp_err_t ret = esp_sleep_cpu_pd_low_init(config->light_sleep_enable);
     if (config->light_sleep_enable && ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to enable CPU power down during light sleep.");
@@ -316,6 +306,19 @@ esp_err_t esp_pm_configure(const void* vconfig)
         esp_pm_light_sleep_default_params_config(min_freq_mhz, max_freq_mhz);
     }
 #endif
+
+    portENTER_CRITICAL(&s_switch_lock);
+    bool res __attribute__((unused));
+    res = rtc_clk_cpu_freq_mhz_to_config(max_freq_mhz, &s_cpu_freq_by_mode[PM_MODE_CPU_MAX]);
+    assert(res);
+    res = rtc_clk_cpu_freq_mhz_to_config(apb_max_freq, &s_cpu_freq_by_mode[PM_MODE_APB_MAX]);
+    assert(res);
+    res = rtc_clk_cpu_freq_mhz_to_config(min_freq_mhz, &s_cpu_freq_by_mode[PM_MODE_APB_MIN]);
+    assert(res);
+    s_cpu_freq_by_mode[PM_MODE_LIGHT_SLEEP] = s_cpu_freq_by_mode[PM_MODE_APB_MIN];
+    s_light_sleep_en = config->light_sleep_enable;
+    s_config_changed = true;
+    portEXIT_CRITICAL(&s_switch_lock);
 
     return ESP_OK;
 }
@@ -506,7 +509,19 @@ static void IRAM_ATTR do_switch(pm_mode_t new_mode)
         if (switch_down) {
             on_freq_update(old_ticks_per_us, new_ticks_per_us);
         }
-        rtc_clk_cpu_freq_set_config_fast(&new_config);
+
+       if (new_config.source == SOC_CPU_CLK_SRC_PLL) {
+            rtc_clk_cpu_freq_set_config_fast(&new_config);
+#if SOC_SPI_MEM_SUPPORT_TIME_TUNING
+            spi_timing_change_speed_mode_cache_safe(false);
+#endif
+        } else {
+#if SOC_SPI_MEM_SUPPORT_TIME_TUNING
+            spi_timing_change_speed_mode_cache_safe(true);
+#endif
+            rtc_clk_cpu_freq_set_config_fast(&new_config);
+        }
+
         if (!switch_down) {
             on_freq_update(old_ticks_per_us, new_ticks_per_us);
         }
@@ -637,7 +652,7 @@ void IRAM_ATTR vApplicationSleep( TickType_t xExpectedIdleTime )
         int64_t sleep_time_us = MIN(wakeup_delay_us, time_until_next_alarm);
         if (sleep_time_us >= configEXPECTED_IDLE_TIME_BEFORE_SLEEP * portTICK_PERIOD_MS * 1000LL) {
             esp_sleep_enable_timer_wakeup(sleep_time_us - LIGHT_SLEEP_EARLY_WAKEUP_US);
-#ifdef CONFIG_PM_TRACE
+#if CONFIG_PM_TRACE && SOC_PM_SUPPORT_RTC_PERIPH_PD
             /* to force tracing GPIOs to keep state */
             esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
 #endif
@@ -695,7 +710,7 @@ void esp_pm_impl_dump_stats(FILE* out)
             /* don't display light sleep mode if it's not enabled */
             continue;
         }
-        fprintf(out, "%-8s  %-3dM%-7s %-10lld  %-2d%%\n",
+        fprintf(out, "%-8s  %-3"PRIu32"M%-7s %-10lld  %-2d%%\n",
                 s_mode_names[i],
                 s_cpu_freq_by_mode[i].freq_mhz,
                 "",                                     //Empty space to align columns
@@ -744,9 +759,6 @@ void esp_pm_impl_init(void)
     esp_pm_trace_init();
 #endif
 
-#if CONFIG_PM_SLP_DISABLE_GPIO && SOC_GPIO_SUPPORT_SLP_SWITCH
-    esp_sleep_config_gpio_isolate();
-#endif
     ESP_ERROR_CHECK(esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "rtos0",
             &s_rtos_lock_handle[0]));
     ESP_ERROR_CHECK(esp_pm_lock_acquire(s_rtos_lock_handle[0]));
@@ -863,7 +875,7 @@ void esp_pm_impl_waiti(void)
 #endif // CONFIG_FREERTOS_USE_TICKLESS_IDLE
 }
 
-#define PERIPH_INFORM_OUT_LIGHT_SLEEP_OVERHEAD_NO 1
+#define PERIPH_INFORM_OUT_LIGHT_SLEEP_OVERHEAD_NO 2
 
 /* Inform peripherals of light sleep wakeup overhead time */
 static inform_out_light_sleep_overhead_cb_t s_periph_inform_out_light_sleep_overhead_cb[PERIPH_INFORM_OUT_LIGHT_SLEEP_OVERHEAD_NO];

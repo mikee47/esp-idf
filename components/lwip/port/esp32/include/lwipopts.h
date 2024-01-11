@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * SPDX-FileContributor: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2015-2023 Espressif Systems (Shanghai) CO LTD
  */
 #ifndef LWIP_HDR_ESP_LWIPOPTS_H
 #define LWIP_HDR_ESP_LWIPOPTS_H
@@ -26,6 +26,7 @@
 #include "sdkconfig.h"
 #include "sntp/sntp_get_set_time.h"
 #include "sockets_ext.h"
+#include "arch/sys_arch.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,9 +47,26 @@ extern "C" {
  */
 #ifdef CONFIG_LWIP_TCPIP_CORE_LOCKING
 #define LWIP_TCPIP_CORE_LOCKING         1
+#ifdef CONFIG_LWIP_TCPIP_CORE_LOCKING_INPUT
+#define LWIP_TCPIP_CORE_LOCKING_INPUT   1
+#else
+#define LWIP_TCPIP_CORE_LOCKING_INPUT   0
+#endif
+#define LOCK_TCPIP_CORE()     do { sys_mutex_lock(&lock_tcpip_core); sys_thread_tcpip(LWIP_CORE_LOCK_MARK_HOLDER); } while(0)
+#define UNLOCK_TCPIP_CORE()   do { sys_thread_tcpip(LWIP_CORE_LOCK_UNMARK_HOLDER); sys_mutex_unlock(&lock_tcpip_core);  } while(0)
+#ifdef CONFIG_LWIP_CHECK_THREAD_SAFETY
+#define LWIP_ASSERT_CORE_LOCKED() do { LWIP_ASSERT("Required to lock TCPIP core functionality!", sys_thread_tcpip(LWIP_CORE_LOCK_QUERY_HOLDER)); } while(0)
+#endif /* CONFIG_LWIP_CHECK_THREAD_SAFETY */
+
 #else
 #define LWIP_TCPIP_CORE_LOCKING         0
-#endif
+#define LWIP_TCPIP_CORE_LOCKING_INPUT   0
+#ifdef CONFIG_LWIP_CHECK_THREAD_SAFETY
+#define LWIP_ASSERT_CORE_LOCKED()     do { LWIP_ASSERT("Required to run in TCPIP context!", sys_thread_tcpip(LWIP_CORE_LOCK_QUERY_HOLDER)); } while(0)
+#endif /* CONFIG_LWIP_CHECK_THREAD_SAFETY */
+#endif /* CONFIG_LWIP_TCPIP_CORE_LOCKING */
+
+#define LWIP_MARK_TCPIP_THREAD() sys_thread_tcpip(LWIP_CORE_MARK_TCPIP_TASK)
 
 /**
  * SYS_LIGHTWEIGHT_PROT==1: if you want inter-task protection for certain
@@ -339,14 +357,12 @@ extern "C" {
 #define ESP_DHCP_DISABLE_VENDOR_CLASS_IDENTIFIER       CONFIG_LWIP_DHCP_DISABLE_VENDOR_CLASS_ID
 
 #define DHCP_DEFINE_CUSTOM_TIMEOUTS     1
-#define DHCP_COARSE_TIMER_SECS          (1)
+#define DHCP_COARSE_TIMER_SECS          CONFIG_LWIP_DHCP_COARSE_TIMER_SECS
 #define DHCP_NEXT_TIMEOUT_THRESHOLD     (3)
 /* Since for embedded devices it's not that hard to miss a discover packet, so lower
- * the discover retry backoff time from (2,4,8,16,32,60,60)s to (500m,1,2,4,8,15,15)s.
+ * the discover and request retry backoff time from (2,4,8,16,32,60,60)s to (500m,1,2,4,4,4,4)s.
  */
-#define DHCP_REQUEST_TIMEOUT_SEQUENCE(state, tries)   (state == DHCP_STATE_REQUESTING ? \
-                                                       (uint16_t)(1 * 1000) : \
-                                                       (uint16_t)(((tries) < 6 ? 1 << (tries) : 60) * 250))
+#define DHCP_REQUEST_TIMEOUT_SEQUENCE(tries)   ((uint16_t)(((tries) < 5 ? 1 << (tries) : 16) * 250))
 
 static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
 {
@@ -354,6 +370,7 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
     if (timeout == 0) {
         timeout = min;
     }
+    timeout = (timeout + DHCP_COARSE_TIMER_SECS - 1) / DHCP_COARSE_TIMER_SECS;
     return timeout;
 }
 
@@ -511,6 +528,21 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
 #define TCP_QUEUE_OOSEQ                 1
 #else
 #define TCP_QUEUE_OOSEQ                 0
+#endif
+
+/**
+ * TCP_OOSEQ_MAX_PBUFS: The maximum number of pbufs
+ * queued on ooseq per pcb
+ */
+#if TCP_QUEUE_OOSEQ
+#define TCP_OOSEQ_MAX_PBUFS             CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS
+#endif
+
+/**
+ * TCP_OOSEQ_TIMEOUT: Timeout for each pbuf queued in TCP OOSEQ, in RTOs.
+ */
+#if TCP_QUEUE_OOSEQ
+#define TCP_OOSEQ_TIMEOUT               CONFIG_LWIP_TCP_OOSEQ_TIMEOUT
 #endif
 
 /**
@@ -845,11 +877,7 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
  * The latter 2 can be invoked up by calling netconn_thread_init()/netconn_thread_cleanup().
  * Ports may call these for threads created with sys_thread_new().
  */
-#if LWIP_TCPIP_CORE_LOCKING
-#define LWIP_NETCONN_SEM_PER_THREAD     0
-#else
 #define LWIP_NETCONN_SEM_PER_THREAD     1
-#endif
 
 /** LWIP_NETCONN_FULLDUPLEX==1: Enable code that allows reading from one thread,
  * writing from a 2nd thread and closing from a 3rd thread at the same time.
@@ -1118,6 +1146,25 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
 #endif
 
 /**
+ * LWIP_ND6==1: Enable ND6 protocol in IPv6
+ */
+#ifdef CONFIG_LWIP_ND6
+#define LWIP_ND6                        1
+#else
+#define LWIP_ND6                        0
+#endif
+
+/**
+ * LWIP_FORCE_ROUTER_FORWARDING==1: the router flag in NA packet will always set to 1,
+ * otherwise, never set router flag for NA packets.
+ */
+#ifdef CONFIG_LWIP_FORCE_ROUTER_FORWARDING
+#define LWIP_FORCE_ROUTER_FORWARDING    1
+#else
+#define LWIP_FORCE_ROUTER_FORWARDING    0
+#endif
+
+/**
  * LWIP_IPV6_NUM_ADDRESSES: Number of IPv6 addresses per netif.
  */
 #define LWIP_IPV6_NUM_ADDRESSES         CONFIG_LWIP_IPV6_NUM_ADDRESSES
@@ -1198,11 +1245,17 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
 #endif
 #define LWIP_HOOK_FILENAME              "lwip_default_hooks.h"
 #define LWIP_HOOK_IP4_ROUTE_SRC         ip4_route_src_hook
+#if LWIP_NETCONN_FULLDUPLEX
+#define LWIP_DONE_SOCK(sock)            done_socket(sock)
+#else
+#define LWIP_DONE_SOCK(sock)            ((void)1)
+#endif /* LWIP_NETCONN_FULLDUPLEX */
+
 #define LWIP_HOOK_SOCKETS_GETSOCKOPT(s, sock, level, optname, optval, optlen, err)    \
-        lwip_getsockopt_impl_ext(sock, level, optname, optval, optlen, err)?(done_socket(sock), true): false
+        lwip_getsockopt_impl_ext(sock, level, optname, optval, optlen, err)?(LWIP_DONE_SOCK(sock), true): false
 
 #define LWIP_HOOK_SOCKETS_SETSOCKOPT(s, sock, level, optname, optval, optlen, err)    \
-        lwip_setsockopt_impl_ext(sock, level, optname, optval, optlen, err)?(done_socket(sock), true): false
+        lwip_setsockopt_impl_ext(sock, level, optname, optval, optlen, err)?(LWIP_DONE_SOCK(sock), true): false
 
 /*
    ---------------------------------------
@@ -1453,6 +1506,15 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
 #define ESP_GRATUITOUS_ARP_INTERVAL     (CONFIG_LWIP_GARP_TMR_INTERVAL*1000UL)
 #else
 #define ESP_GRATUITOUS_ARP              0
+#endif
+
+/**
+ * ESP_MLDV6_REPORT==1: This option allows to send mldv6 report periodically.
+ */
+#ifdef CONFIG_LWIP_ESP_MLDV6_REPORT
+#define ESP_MLDV6_REPORT              1
+#else
+#define ESP_MLDV6_REPORT              0
 #endif
 
 #define ESP_LWIP                        1

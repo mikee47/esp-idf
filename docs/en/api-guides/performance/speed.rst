@@ -170,7 +170,7 @@ Common priorities are:
         :SOC_BT_SUPPORTED: - :doc:`NimBLE Bluetooth Host </api-reference/bluetooth/nimble/index>` host task has high priority (21).
         - The Ethernet driver creates a task for the MAC to receive Ethernet frames. If using the default config ``ETH_MAC_DEFAULT_CONFIG`` then the priority is medium-high (15). This setting can be changed by passing a custom :cpp:class:`eth_mac_config_t` struct when initializing the Ethernet MAC.
         - If using the :doc:`MQTT </api-reference/protocols/mqtt>` component, it creates a task with default priority 5 (:ref:`configurable<CONFIG_MQTT_TASK_PRIORITY>`, depends on :ref:`CONFIG_MQTT_USE_CUSTOM_CONFIG` (also configurable runtime by ``task_prio`` field in the :cpp:class:`esp_mqtt_client_config_t`)
-        - To see what is the task priority for ``mDNS`` service, please check `Performance Optimization <https://espressif.github.io/esp-protocols/mdns/en/index.html#execution-speed>`__.
+        - To see what is the task priority for ``mDNS`` service, please check `Performance Optimization <https://docs.espressif.com/projects/esp-protocols/mdns/docs/latest/en/index.html#execution-speed>`__.
 
 .. only :: not CONFIG_FREERTOS_UNICORE
 
@@ -240,3 +240,4 @@ Improving Network Speed
     :SOC_WIFI_SUPPORTED: * For Wi-Fi, see :ref:`How-to-improve-Wi-Fi-performance` and :ref:`wifi-buffer-usage`
     * For lwIP TCP/IP (Wi-Fi and Ethernet), see :ref:`lwip-performance`
     :SOC_WIFI_SUPPORTED: * The :example:`wifi/iperf` example contains a configuration that is heavily optimized for Wi-Fi TCP/IP throughput. Append the contents of the files :example_file:`wifi/iperf/sdkconfig.defaults`, :example_file:`wifi/iperf/sdkconfig.defaults.{IDF_TARGET_PATH_NAME}` and :example_file:`wifi/iperf/sdkconfig.ci.99` to your project ``sdkconfig`` file in order to add all of these options. Note that some of these options may have trade-offs in terms of reduced debuggability, increased firmware size, increased memory usage, or reduced performance of other features. To get the best result, read the documentation pages linked above and use this information to determine exactly which options are best suited for your app.
+    :SOC_EMAC_SUPPORTED: * The :example:`ethernet/iperf` example contains a configuration that is heavily optimized for Ethernet TCP/IP throughput. Examine :example_file:`ethernet/iperf/sdkconfig.defaults` for more details. Note that some of these options may have trade-offs in terms of reduced debuggability, increased firmware size, increased memory usage, or reduced performance of other features. To get the best result, read the documentation pages linked above and use related information to determine exactly which options are best suited for your app.

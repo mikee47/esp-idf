@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -50,7 +50,7 @@ typedef struct {
     bool auto_nego_en;
     eth_speed_t speed;
     eth_duplex_t duplex;
-    eth_link_t link;
+    _Atomic eth_link_t link;
     atomic_int ref_count;
     void *priv;
     _Atomic esp_eth_fsm_t fsm;
@@ -129,7 +129,7 @@ static esp_err_t eth_on_state_changed(esp_eth_mediator_t *eth, esp_eth_state_t s
     case ETH_STATE_LINK: {
         eth_link_t link = (eth_link_t)args;
         ESP_GOTO_ON_ERROR(mac->set_link(mac, link), err, TAG, "ethernet mac set link failed");
-        eth_driver->link = link;
+        atomic_store(&eth_driver->link, link);
         if (link == ETH_LINK_UP) {
             ESP_GOTO_ON_ERROR(esp_event_post(ETH_EVENT, ETHERNET_EVENT_CONNECTED, &eth_driver, sizeof(esp_eth_driver_t *), 0), err,
                               TAG, "send ETHERNET_EVENT_CONNECTED event failed");
@@ -205,7 +205,7 @@ esp_err_t esp_eth_driver_install(const esp_eth_config_t *config, esp_eth_handle_
     atomic_init(&eth_driver->fsm, ESP_ETH_FSM_STOP);
     eth_driver->mac = mac;
     eth_driver->phy = phy;
-    eth_driver->link = ETH_LINK_DOWN;
+    atomic_init(&eth_driver->link, ETH_LINK_DOWN);
     eth_driver->duplex = ETH_DUPLEX_HALF;
     eth_driver->speed = ETH_SPEED_10M;
     eth_driver->stack_input = config->stack_input;
@@ -309,7 +309,14 @@ esp_err_t esp_eth_stop(esp_eth_handle_t hdl)
     ESP_GOTO_ON_FALSE(atomic_compare_exchange_strong(&eth_driver->fsm, &expected_fsm, ESP_ETH_FSM_STOP),
                       ESP_ERR_INVALID_STATE, err, TAG, "driver not started yet");
     ESP_GOTO_ON_ERROR(esp_timer_stop(eth_driver->check_link_timer), err, TAG, "stop link timer failed");
-    ESP_GOTO_ON_ERROR(mac->stop(mac), err, TAG, "stop mac failed");
+
+    eth_link_t expected_link = ETH_LINK_UP;
+    if (atomic_compare_exchange_strong(&eth_driver->link, &expected_link, ETH_LINK_DOWN)){
+        // MAC is stopped by setting link down
+        ESP_GOTO_ON_ERROR(mac->set_link(mac, ETH_LINK_DOWN), err, TAG, "ethernet mac set link failed");
+        ESP_GOTO_ON_ERROR(esp_event_post(ETH_EVENT, ETHERNET_EVENT_DISCONNECTED, &eth_driver, sizeof(esp_eth_driver_t *), 0), err,
+                            TAG, "send ETHERNET_EVENT_DISCONNECTED event failed");
+    }
 
     ESP_GOTO_ON_ERROR(esp_event_post(ETH_EVENT, ETHERNET_EVENT_STOP, &eth_driver, sizeof(esp_eth_driver_t *), 0),
                       err, TAG, "send ETHERNET_EVENT_STOP event failed");
@@ -336,9 +343,9 @@ esp_err_t esp_eth_transmit(esp_eth_handle_t hdl, void *buf, size_t length)
     esp_err_t ret = ESP_OK;
     esp_eth_driver_t *eth_driver = (esp_eth_driver_t *)hdl;
 
-    if (atomic_load(&eth_driver->fsm) != ESP_ETH_FSM_START) {
+    if (atomic_load(&eth_driver->link) != ETH_LINK_UP) {
         ret = ESP_ERR_INVALID_STATE;
-        ESP_LOGD(TAG, "Ethernet is not started");
+        ESP_LOGD(TAG, "Ethernet link is not up, can't transmit");
         goto err;
     }
 
@@ -365,9 +372,9 @@ esp_err_t esp_eth_transmit_vargs(esp_eth_handle_t hdl, uint32_t argc, ...)
     esp_err_t ret = ESP_OK;
     esp_eth_driver_t *eth_driver = (esp_eth_driver_t *)hdl;
 
-    if (atomic_load(&eth_driver->fsm) != ESP_ETH_FSM_START) {
+    if (atomic_load(&eth_driver->link) != ETH_LINK_UP) {
         ret = ESP_ERR_INVALID_STATE;
-        ESP_LOGD(TAG, "Ethernet is not started");
+        ESP_LOGD(TAG, "Ethernet link is not up, can't transmit");
         goto err;
     }
 
@@ -459,7 +466,26 @@ esp_err_t esp_eth_ioctl(esp_eth_handle_t hdl, esp_eth_io_cmd_t cmd, void *data)
     case ETH_CMD_S_PHY_LOOPBACK:
         ESP_GOTO_ON_FALSE(data, ESP_ERR_INVALID_ARG, err, TAG, "can't set loopback to null");
         ESP_GOTO_ON_ERROR(phy->loopback(phy, *(bool *)data), err, TAG, "configuration of phy loopback mode failed");
-
+        break;
+    case ETH_CMD_READ_PHY_REG: {
+            uint32_t phy_addr;
+            ESP_GOTO_ON_FALSE(data, ESP_ERR_INVALID_ARG, err, TAG, "invalid register read/write info");
+            esp_eth_phy_reg_rw_data_t *phy_r_data = (esp_eth_phy_reg_rw_data_t *)data;
+            ESP_GOTO_ON_FALSE(phy_r_data->reg_value_p, ESP_ERR_INVALID_ARG, err, TAG, "can't read registers to null");
+            ESP_GOTO_ON_ERROR(phy->get_addr(phy, &phy_addr), err, TAG, "get phy address failed");
+            ESP_GOTO_ON_ERROR(eth_driver->mediator.phy_reg_read(&eth_driver->mediator,
+                            phy_addr, phy_r_data->reg_addr, phy_r_data->reg_value_p), err, TAG, "failed to read PHY register");
+        }
+        break;
+    case ETH_CMD_WRITE_PHY_REG: {
+            uint32_t phy_addr;
+            ESP_GOTO_ON_FALSE(data, ESP_ERR_INVALID_ARG, err, TAG, "invalid register read/write info");
+            esp_eth_phy_reg_rw_data_t *phy_w_data = (esp_eth_phy_reg_rw_data_t *)data;
+            ESP_GOTO_ON_FALSE(phy_w_data->reg_value_p, ESP_ERR_INVALID_ARG, err, TAG, "can't write registers from null");
+            ESP_GOTO_ON_ERROR(phy->get_addr(phy, &phy_addr), err, TAG, "get phy address failed");
+            ESP_GOTO_ON_ERROR(eth_driver->mediator.phy_reg_write(&eth_driver->mediator,
+                            phy_addr, phy_w_data->reg_addr, *(phy_w_data->reg_value_p)), err, TAG, "failed to write PHY register");
+        }
         break;
     default:
         if (phy->custom_ioctl != NULL && cmd >= ETH_CMD_CUSTOM_PHY_CMDS) {

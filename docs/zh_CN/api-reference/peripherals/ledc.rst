@@ -215,7 +215,13 @@ LED PWM 控制器可在无需 CPU 干预的情况下自动改变占空比，实�
 
 另外一种设置占空比和其他通道参数的方式是调用 :ref:`ledc-api-configure-channel` 一节提到的函数 :cpp:func:`ledc_channel_config`。
 
-传递给函数的占空比数值范围取决于选定的 ``duty_resolution``，应为 ``0`` 至 ``(2 ** duty_resolution) - 1``。例如，如选定的占空比分辨率为 10，则占空比的数值范围为 0 至 1023。此时分辨率为 ~0.1%。
+传递给函数的占空比数值范围取决于选定的 ``duty_resolution``，应为 ``0`` 至 ``(2 ** duty_resolution)``。例如，如选定的占空比分辨率为 10，则占空比的数值范围为 0 至 1024。此时分辨率为 ~ 0.1%。
+
+.. only:: esp32 or esp32s2 or esp32s3 or esp32c3 or esp32c2 or esp32h2
+
+    .. warning::
+
+        在 {IDF_TARGET_NAME} 上，当通道绑定的定时器配置了其最大 PWM 占空比分辨率（ ``MAX_DUTY_RES`` ），通道的占空比不能被设置到 ``(2 ** MAX_DUTY_RES)`` 。否则，硬件内部占空比计数器会溢出，并导致占空比计算错误。
 
 
 使用硬件改变 PWM 占空比
@@ -235,7 +241,7 @@ LED PWM 控制器硬件可逐渐改变占空比的数值。要使用此功能，
 
     最后需要调用 :cpp:func:`ledc_fade_start` 开启渐变。渐变可以在阻塞或非阻塞模式下运行，具体区别请查看 :cpp:enum:`ledc_fade_mode_t`。需要特别注意的是，不管在哪种模式下，下一次渐变或是单次占空比配置的指令生效都必须等到前一次渐变完成或被中止。中止一个正在运行中的渐变需要调用函数 :cpp:func:`ledc_fade_stop`。
 
-此外，在使能渐变后，每个通道都可以额外通过调用 :cpp:func:`ledc_cb_register` 注册一个回调函数用以获得渐变完成的事件通知。
+此外，在使能渐变后，每个通道都可以额外通过调用 :cpp:func:`ledc_cb_register` 注册一个回调函数用以获得渐变完成的事件通知。回调函数的原型被定义在 :cpp:type:`ledc_cb_t`。每个回调函数都应当返回一个布尔值给驱动的中断处理函数，用以表示是否有高优先级任务被其唤醒。此外，值得注意的是，由于驱动的中断处理函数被放在了 IRAM 中， 回调函数和其调用的函数也需要被放在 IRAM 中。 :cpp:func:`ledc_cb_register` 会检查回调函数及函数上下文的指针地址是否在正确的存储区域。
 
 如不需要渐变和渐变中断，可用函数 :cpp:func:`ledc_fade_func_uninstall` 关闭。
 
