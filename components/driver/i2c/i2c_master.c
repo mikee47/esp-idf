@@ -251,6 +251,15 @@ static bool s_i2c_read_command(i2c_master_bus_handle_t i2c_master, i2c_operation
     }
 #else
     portENTER_CRITICAL_SAFE(&handle->spinlock);
+    // If the read command work with ack_val, but no bytes to read, we skip
+    // this command, and run next command directly.
+    if (hw_cmd.ack_val == ACK_VAL) {
+        if (i2c_operation->total_bytes == 0) {
+            i2c_master->trans_idx++;
+            hw_cmd = i2c_master->i2c_trans.ops[i2c_master->trans_idx].hw_cmd;
+            i2c_master->i2c_trans.cmd_count--;
+        }
+    }
     i2c_ll_master_write_cmd_reg(hal->dev, hw_cmd, i2c_master->cmd_idx);
     i2c_ll_master_write_cmd_reg(hal->dev, hw_end_cmd, i2c_master->cmd_idx + 1);
     portEXIT_CRITICAL_SAFE(&handle->spinlock);
@@ -871,6 +880,8 @@ esp_err_t i2c_master_bus_add_device(i2c_master_bus_handle_t bus_handle, const i2
 {
     esp_err_t ret = ESP_OK;
     ESP_RETURN_ON_FALSE((bus_handle != NULL), ESP_ERR_INVALID_ARG, TAG, "this bus is not initialized, please call `i2c_new_master_bus`");
+    ESP_RETURN_ON_FALSE(dev_config, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(dev_config->scl_speed_hz > 0, ESP_ERR_INVALID_ARG, TAG, "invalid scl frequency");
     if(bus_handle->base->bus_mode != I2C_BUS_MODE_MASTER) {
         ESP_LOGE(TAG, "This is not master bus!");
         return ESP_ERR_INVALID_ARG;

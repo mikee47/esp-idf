@@ -278,6 +278,10 @@ void esp_phy_enable(esp_phy_modem_t modem)
 #endif
     }
     phy_set_modem_flag(modem);
+#if !CONFIG_IDF_TARGET_ESP32
+    // Immediately track pll when phy enabled.
+    phy_track_pll();
+#endif
 
     _lock_release(&s_phy_access_lock);
 }
@@ -781,11 +785,7 @@ void esp_phy_load_cal_and_init(void)
     // Set PHY whether in combo module
     // For comode mode, phy enable will be not in WiFi RX state
 #if SOC_PHY_COMBO_MODULE
-#if (CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3)
-    phy_init_param_set(0);
-#else
     phy_init_param_set(1);
-#endif
 #endif
 
     esp_phy_calibration_data_t* cal_data =
