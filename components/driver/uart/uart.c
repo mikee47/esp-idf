@@ -48,7 +48,7 @@
 static const char *UART_TAG = "uart";
 
 #define UART_EMPTY_THRESH_DEFAULT       (10)
-#define LP_UART_EMPTY_THRESH_DEFAULT    (2)
+#define LP_UART_EMPTY_THRESH_DEFAULT    (4)
 #define UART_FULL_THRESH_DEFAULT        (120)
 #define LP_UART_FULL_THRESH_DEFAULT     (10)
 #define UART_TOUT_THRESH_DEFAULT        (10)
@@ -1794,7 +1794,7 @@ esp_err_t uart_get_collision_flag(uart_port_t uart_num, bool *collision_flag)
 esp_err_t uart_set_wakeup_threshold(uart_port_t uart_num, int wakeup_threshold)
 {
     ESP_RETURN_ON_FALSE((uart_num < UART_NUM_MAX), ESP_ERR_INVALID_ARG, UART_TAG, "uart_num error");
-    ESP_RETURN_ON_FALSE((wakeup_threshold <= UART_THRESHOLD_NUM(uart_num, UART_ACTIVE_THRESHOLD_V) && wakeup_threshold > UART_MIN_WAKEUP_THRESH), ESP_ERR_INVALID_ARG, UART_TAG,
+    ESP_RETURN_ON_FALSE((wakeup_threshold <= UART_THRESHOLD_NUM(uart_num, UART_ACTIVE_THRESHOLD_V) && wakeup_threshold >= UART_MIN_WAKEUP_THRESH), ESP_ERR_INVALID_ARG, UART_TAG,
                         "wakeup_threshold out of bounds");
     UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));
     uart_hal_set_wakeup_thrd(&(uart_context[uart_num].hal), wakeup_threshold);

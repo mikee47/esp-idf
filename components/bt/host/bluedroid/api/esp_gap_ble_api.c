@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -299,6 +299,7 @@ esp_err_t esp_ble_gap_config_local_icon (uint16_t icon)
     case ESP_BLE_APPEARANCE_OUTDOOR_SPORTS_LOCATION_AND_NAV:
     case ESP_BLE_APPEARANCE_OUTDOOR_SPORTS_LOCATION_POD:
     case ESP_BLE_APPEARANCE_OUTDOOR_SPORTS_LOCATION_POD_AND_NAV:
+    case ESP_BLE_APPEARANCE_STANDALONE_SPEAKER:
         msg.sig = BTC_SIG_API_CALL;
         msg.pid = BTC_PID_GAP_BLE;
         msg.act = BTC_GAP_BLE_ACT_CONFIG_LOCAL_ICON;
@@ -396,9 +397,25 @@ esp_err_t esp_ble_gap_set_prefer_conn_params(esp_bd_addr_t bd_addr,
 
 esp_err_t esp_ble_gap_set_device_name(const char *name)
 {
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    btc_msg_t msg = {0};
+    btc_ble_gap_args_t arg;
 
-    return esp_bt_dev_set_device_name(name);
+    if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!name){
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (strlen(name) > BTC_MAX_LOC_BD_NAME_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_GAP_BLE;
+    msg.act = BTC_GAP_BLE_ACT_SET_DEV_NAME;
+    arg.set_dev_name.device_name = (char *)name;
+
+    return (btc_transfer_context(&msg, &arg, sizeof(btc_ble_gap_args_t), btc_gap_ble_arg_deep_copy, btc_gap_ble_arg_deep_free) == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
 }
 
 esp_err_t esp_ble_gap_get_device_name(void)
@@ -1599,3 +1616,31 @@ esp_err_t esp_ble_gap_set_periodic_adv_sync_trans_params(esp_bd_addr_t addr, con
             == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
 }
 #endif //#if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+
+esp_err_t esp_ble_gap_vendor_command_send(esp_ble_vendor_cmd_params_t *vendor_cmd_param)
+{
+    btc_msg_t msg = {0};
+    btc_ble_gap_args_t arg;
+
+    if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!vendor_cmd_param || !vendor_cmd_param->p_param_buf || !vendor_cmd_param->param_len) {
+        return ESP_ERR_NOT_ALLOWED;
+    }
+    // If command is not a VSC, return error
+    if ((vendor_cmd_param->opcode & VENDOR_HCI_CMD_MASK) != VENDOR_HCI_CMD_MASK) {
+        return ESP_ERR_NOT_ALLOWED;
+    }
+
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_GAP_BLE;
+    msg.act = BTC_GAP_BLE_ACT_VENDOR_HCI_CMD_EVT;
+    arg.vendor_cmd_send.opcode = vendor_cmd_param->opcode;
+    arg.vendor_cmd_send.param_len = vendor_cmd_param->param_len;
+    arg.vendor_cmd_send.p_param_buf = vendor_cmd_param->p_param_buf;
+
+    return (btc_transfer_context(&msg, &arg, sizeof(btc_ble_gap_args_t), btc_gap_ble_arg_deep_copy, btc_gap_ble_arg_deep_free)
+                == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
+}
