@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -16,11 +16,23 @@
 #include <stdint.h>
 #include "hal/ecdsa_types.h"
 #include "soc/soc_caps.h"
+#include "sdkconfig.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#if CONFIG_HAL_ECDSA_GEN_SIG_CM
+
+#define ECDSA_SIGN_MAX_DUMMY_OP_COUNT 0x7
+
+/* This value defines the maximum dummy operation count for the ECDSA signature countermeasure.
+   Higher the number, better the countermeasure's effectiveness against attacks.
+   At the same time higher number leads to slower performance.
+   After the countermeasure is enabled, hardware ECDSA signature operation
+   shall take time approximately equal to original time multiplied by this number.
+   If you observe that the reduced performance is affecting your use-case then you may try reducing this time to the minimum. */
+#endif /* CONFIG_HAL_ECDSA_GEN_SIG_CM */
 /*
  * ECDSA peripheral config structure
  */
@@ -72,6 +84,14 @@ int ecdsa_hal_verify_signature(ecdsa_hal_config_t *conf, const uint8_t *hash, co
  */
 void ecdsa_hal_export_pubkey(ecdsa_hal_config_t *conf, uint8_t *pub_x, uint8_t *pub_y, uint16_t len);
 #endif /* SOC_ECDSA_SUPPORT_EXPORT_PUBKEY */
+
+/**
+ * @brief Check if the ECDSA operation is successful
+ *
+ * @return - true, if the ECDSA operation is successful
+ *         - false, if the ECDSA operation fails
+ */
+bool ecdsa_hal_get_operation_result(void);
 
 #ifdef __cplusplus
 }

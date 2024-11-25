@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -43,7 +43,7 @@ static esp_err_t wpa3_build_sae_commit(u8 *bssid, size_t *sae_msg_len)
         use_pt = 1;
     }
 
-   rsnxe = esp_wifi_sta_get_rsnxe();
+   rsnxe = esp_wifi_sta_get_rsnxe(bssid);
    if (rsnxe && rsnxe[1] >= 1) {
        rsnxe_capa = rsnxe[2];
    }
@@ -364,16 +364,19 @@ int wpa3_hostap_post_evt(uint32_t evt_id, uint32_t data)
         if (g_wpa3_hostap_evt_queue == NULL) {
             WPA3_HOSTAP_AUTH_API_UNLOCK();
             os_free(evt);
+            wpa_printf(MSG_DEBUG, "hostap evt queue NULL");
             return ESP_FAIL;
         }
     } else {
         os_free(evt);
+        wpa_printf(MSG_DEBUG, "g_wpa3_hostap_auth_api_lock not found");
         return ESP_FAIL;
     }
     if (evt->id == SIG_WPA3_RX_CONFIRM || evt->id == SIG_TASK_DEL) {
         /* prioritising confirm for completing handshake for committed sta */
         if (os_queue_send_to_front(g_wpa3_hostap_evt_queue, &evt, 0) != pdPASS) {
             WPA3_HOSTAP_AUTH_API_UNLOCK();
+            wpa_printf(MSG_DEBUG, "failed to add msg to queue front");
             os_free(evt);
             return ESP_FAIL;
         }
@@ -381,6 +384,7 @@ int wpa3_hostap_post_evt(uint32_t evt_id, uint32_t data)
         if (os_queue_send(g_wpa3_hostap_evt_queue, &evt, 0) != pdPASS) {
             WPA3_HOSTAP_AUTH_API_UNLOCK();
             os_free(evt);
+            wpa_printf(MSG_DEBUG, "failed to send msg to queue");
             return ESP_FAIL;
         }
     }
@@ -419,10 +423,6 @@ static void wpa3_process_rx_commit(wpa3_hostap_auth_event_t *evt)
             }
             goto free;
         }
-    }
-
-    if (!sta->lock) {
-        sta->lock = os_semphr_create(1, 1);
     }
 
     if (sta->lock && os_semphr_take(sta->lock, 0)) {
@@ -565,6 +565,7 @@ int wpa3_hostap_auth_init(void *data)
                     &g_wpa3_hostap_task_hdl) != pdPASS) {
         wpa_printf(MSG_ERROR, "wpa3_hostap_auth_init: failed to create task");
         os_queue_delete(g_wpa3_hostap_evt_queue);
+        g_wpa3_hostap_evt_queue = NULL;
         return ESP_FAIL;
     }
 
@@ -586,6 +587,9 @@ bool wpa3_hostap_auth_deinit(void)
 static int wpa3_hostap_handle_auth(u8 *buf, size_t len, u32 auth_transaction, u16 status, u8 *bssid)
 {
     struct hostapd_data *hapd = (struct hostapd_data *)esp_wifi_get_hostap_private_internal();
+    if (!hapd) {
+        return ESP_FAIL;
+    }
     struct sta_info *sta = ap_get_sta(hapd, bssid);
     if (auth_transaction == SAE_MSG_COMMIT) {
         if (sta && sta->sae_commit_processing) {
@@ -634,7 +638,7 @@ int esp_send_sae_auth_reply(struct hostapd_data *hapd,
     os_memcpy(&((uint16_t *)req->data)[3], ies, ies_len - 3 * sizeof(uint16_t));
 
     req->ifx = WIFI_IF_AP;
-    req->subtype = WLAN_FC_STYPE_AUTH;
+    req->subtype = (WLAN_FC_STYPE_AUTH << 4);
     req->data_len = ies_len;
     os_memcpy(req->da, bssid, ETH_ALEN);
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -281,7 +281,7 @@ static void close_timeout_handler(void *arg)
     status = btc_transfer_context(&msg, slot->alarm_arg, sizeof(tBTA_JV), NULL, NULL);
 
     if (slot->alarm_arg) {
-        free(slot->alarm_arg);
+        osi_free(slot->alarm_arg);
         slot->alarm_arg = NULL;
     }
 
@@ -832,7 +832,7 @@ void btc_l2cap_cb_handler(btc_msg_t *msg)
             // if rx still has data, delay free slot
             if (slot->close_alarm == NULL && slot->rx.queue && fixed_queue_length(slot->rx.queue) > 0) {
                 tBTA_JV *p_arg = NULL;
-                if ((p_arg = malloc(sizeof(tBTA_JV))) == NULL) {
+                if ((p_arg = osi_malloc(sizeof(tBTA_JV))) == NULL) {
                     param.close.status = ESP_BT_L2CAP_NO_RESOURCE;
                     osi_mutex_unlock(&l2cap_local_param.l2cap_slot_mutex);
                     BTC_TRACE_ERROR("%s unable to malloc slot close_alarm arg!", __func__);
@@ -842,7 +842,7 @@ void btc_l2cap_cb_handler(btc_msg_t *msg)
                 slot->alarm_arg = (void *)p_arg;
                 if ((slot->close_alarm =
                             osi_alarm_new("slot", close_timeout_handler, (void *)slot, VFS_CLOSE_TIMEOUT)) == NULL) {
-                    free(p_arg);
+                    osi_free(p_arg);
                     slot->alarm_arg = NULL;
                     param.close.status = ESP_BT_L2CAP_NO_RESOURCE;
                     osi_mutex_unlock(&l2cap_local_param.l2cap_slot_mutex);
@@ -850,7 +850,7 @@ void btc_l2cap_cb_handler(btc_msg_t *msg)
                     break;
                 }
                 if (osi_alarm_set(slot->close_alarm, VFS_CLOSE_TIMEOUT) != OSI_ALARM_ERR_PASS) {
-                    free(p_arg);
+                    osi_free(p_arg);
                     slot->alarm_arg = NULL;
                     osi_alarm_free(slot->close_alarm);
                     param.close.status = ESP_BT_L2CAP_BUSY;
@@ -906,7 +906,6 @@ void btc_l2cap_cb_handler(btc_msg_t *msg)
                 fixed_queue_enqueue(slot->rx.queue, p_data_buf, FIXED_QUEUE_MAX_TIMEOUT);
             } else {
                 osi_free(p_data_buf);
-                break;
             }
         }
         osi_mutex_unlock(&l2cap_local_param.l2cap_slot_mutex);
@@ -945,12 +944,11 @@ void btc_l2cap_cb_handler(btc_msg_t *msg)
                 break; // to do disconnect
             }
             memset(p_data_buf, 0, count + sizeof(BT_HDR));
-            p_data_buf->len = BTA_JvL2capRead(p_data->data_ind.handle, slot->id, p_data_buf->data, count);
+            p_data_buf->len = BTA_JvL2capRead(p_data->l2c_read.handle, slot->id, p_data_buf->data, count);
             if (p_data_buf->len > 0) {
                 fixed_queue_enqueue(slot->rx.queue, p_data_buf, FIXED_QUEUE_MAX_TIMEOUT);
             } else {
                 osi_free(p_data_buf);
-                break;
             }
         }
         osi_mutex_unlock(&l2cap_local_param.l2cap_slot_mutex);
@@ -1060,7 +1058,7 @@ static ssize_t l2cap_vfs_write(int fd, const void * data, size_t size)
             if (!enqueue_status) {
                 BTC_TRACE_DEBUG("%s tx_len:%d, fd:%d\n", __func__, fixed_queue_length(slot->tx.queue), fd);
                 osi_mutex_unlock(&l2cap_local_param.l2cap_slot_mutex);
-                //block untill under water level, be closed or time out
+                //block until under water level, be closed or time out
                 tx_event_group_val =
                     xEventGroupWaitBits(l2cap_local_param.tx_event_group, SLOT_WRITE_BIT(serial) | SLOT_CLOSE_BIT(serial), pdTRUE,
                                         pdFALSE, VFS_WRITE_TIMEOUT / portTICK_PERIOD_MS);

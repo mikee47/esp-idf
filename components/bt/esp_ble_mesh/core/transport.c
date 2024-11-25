@@ -2,7 +2,7 @@
 
 /*
  * SPDX-FileCopyrightText: 2017 Intel Corporation
- * SPDX-FileContributor: 2018-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2018-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,6 +11,7 @@
 #include <errno.h>
 
 #include "crypto.h"
+#include "tag.h"
 #include "adv.h"
 #include "mesh.h"
 #include "lpn.h"
@@ -26,7 +27,9 @@
 #include "mesh/cfg_srv.h"
 #include "heartbeat.h"
 
+#if CONFIG_BLE_MESH_V11_SUPPORT
 #include "mesh_v1.1/utils.h"
+#endif
 
 /* The transport layer needs at least three buffers for itself to avoid
  * deadlocks. Ensure that there are a sufficient number of advertising
@@ -310,7 +313,15 @@ static void seg_tx_done(struct seg_tx *tx, uint8_t seg_idx)
 {
     bt_mesh_adv_buf_ref_debug(__func__, tx->seg[seg_idx], 3U, BLE_MESH_BUF_REF_SMALL);
 
-    BLE_MESH_ADV(tx->seg[seg_idx])->busy = 0U;
+    /**
+     * When cancelling a segment that is still in the adv sending queue, `tx->seg_pending`
+     * must else be decremented by one. More detailed information
+     * can be found in BLEMESH24-26.
+     */
+    if (bt_mesh_atomic_cas(&BLE_MESH_ADV_BUSY(tx->seg[seg_idx]), 1, 0)) {
+        tx->seg_pending--;
+    }
+
     net_buf_unref(tx->seg[seg_idx]);
     tx->seg[seg_idx] = NULL;
     tx->nack_count--;
@@ -443,7 +454,7 @@ static void seg_tx_send_unacked(struct seg_tx *tx)
             continue;
         }
 
-        if (BLE_MESH_ADV(seg)->busy) {
+        if (bt_mesh_atomic_get(&BLE_MESH_ADV_BUSY(seg))) {
             BT_DBG("Skipping segment that's still advertising");
             continue;
         }
@@ -1031,18 +1042,18 @@ static int ctl_recv(struct bt_mesh_net_rx *rx, uint8_t hdr,
         return 0;
     }
 
-    if (IS_ENABLED(CONFIG_BLE_MESH_DF_SRV)) {
-        switch (ctl_op) {
-        case TRANS_CTL_OP_PATH_REQ:
-        case TRANS_CTL_OP_PATH_REPLY:
-        case TRANS_CTL_OP_PATH_CFM:
-        case TRANS_CTL_OP_PATH_ECHO_REQ:
-        case TRANS_CTL_OP_PATH_ECHO_REPLY:
-        case TRANS_CTL_OP_DEP_NODE_UPDATE:
-        case TRANS_CTL_OP_PATH_REQ_SOLIC:
-            return bt_mesh_directed_forwarding_ctl_recv(ctl_op, rx, buf);
-        }
+#if CONFIG_BLE_MESH_DF_SRV
+    switch (ctl_op) {
+    case TRANS_CTL_OP_PATH_REQ:
+    case TRANS_CTL_OP_PATH_REPLY:
+    case TRANS_CTL_OP_PATH_CFM:
+    case TRANS_CTL_OP_PATH_ECHO_REQ:
+    case TRANS_CTL_OP_PATH_ECHO_REPLY:
+    case TRANS_CTL_OP_DEP_NODE_UPDATE:
+    case TRANS_CTL_OP_PATH_REQ_SOLIC:
+        return bt_mesh_directed_forwarding_ctl_recv(ctl_op, rx, buf);
     }
+#endif
 
     if (IS_ENABLED(CONFIG_BLE_MESH_FRIEND) && !bt_mesh_lpn_established()) {
         switch (ctl_op) {
@@ -1750,8 +1761,6 @@ void bt_mesh_tx_reset_single(uint16_t dst)
 void bt_mesh_trans_init(void)
 {
     int i;
-
-    bt_mesh_sar_init();
 
     for (i = 0; i < ARRAY_SIZE(seg_tx); i++) {
         k_delayed_work_init(&seg_tx[i].rtx_timer, seg_retransmit);

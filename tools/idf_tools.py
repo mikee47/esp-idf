@@ -166,27 +166,50 @@ class Platforms:
     }
 
     @staticmethod
+    def detect_linux_arm_platform(supposed_platform):  # type: (Optional[str]) -> Optional[str]
+        """
+        We probe the python binary to check exactly what environment the script is running in.
+
+        ARM platform may run on armhf hardware but having armel installed packages.
+        To avoid possible armel/armhf libraries mixing need to define user's
+        packages architecture to use the same
+        See note section in https://gcc.gnu.org/onlinedocs/gcc/ARM-Options.html#index-mfloat-abi
+
+        ARM platform may run on aarch64 hardware but having armhf installed packages
+        (it happens if a docker container is running on arm64 hardware, but using an armhf image).
+
+        """
+        if supposed_platform not in (PLATFORM_LINUX_ARM32, PLATFORM_LINUX_ARMHF, PLATFORM_LINUX_ARM64):
+            return supposed_platform
+
+        # suppose that installed python was built with the right ABI
+        with open(sys.executable, 'rb') as f:
+            # see ELF header description in https://man7.org/linux/man-pages/man5/elf.5.html, offsets depend on ElfN size
+            if int.from_bytes(f.read(4), sys.byteorder) != int.from_bytes(b'\x7fELF', sys.byteorder):
+                return supposed_platform  # ELF magic not found. Use the default platform name from PLATFORM_FROM_NAME
+            f.seek(18)  # seek to e_machine
+            e_machine = int.from_bytes(f.read(2), sys.byteorder)
+            if e_machine == 183:  # EM_AARCH64, https://github.com/ARM-software/abi-aa/blob/main/aaelf64/aaelf64.rst
+                supposed_platform = PLATFORM_LINUX_ARM64
+            elif e_machine == 40:  # EM_ARM, https://github.com/ARM-software/abi-aa/blob/main/aaelf32/aaelf32.rst
+                f.seek(36)  # seek to e_flags
+                e_flags = int.from_bytes(f.read(4), sys.byteorder)
+                if e_flags & 0x400:
+                    supposed_platform = PLATFORM_LINUX_ARMHF
+                else:
+                    supposed_platform = PLATFORM_LINUX_ARM32
+
+        return supposed_platform
+
+    @staticmethod
     def get(platform_alias):  # type: (Optional[str]) -> Optional[str]
         if platform_alias is None:
             return None
 
         if platform_alias == 'any' and CURRENT_PLATFORM:
             platform_alias = CURRENT_PLATFORM
-
         platform_name = Platforms.PLATFORM_FROM_NAME.get(platform_alias, None)
-
-        # ARM platform may run on armhf hardware but having armel installed packages.
-        # To avoid possible armel/armhf libraries mixing need to define user's
-        # packages architecture to use the same
-        # See note section in https://gcc.gnu.org/onlinedocs/gcc/ARM-Options.html#index-mfloat-abi
-        if platform_name in (PLATFORM_LINUX_ARM32, PLATFORM_LINUX_ARMHF) and 'arm' in platform.machine():
-            # suppose that installed python was built with a right ABI
-            with open(sys.executable, 'rb') as f:
-                if int.from_bytes(f.read(4), sys.byteorder) != int.from_bytes(b'\x7fELF', sys.byteorder):
-                    return platform_name  # ELF magic not found. Use default platform name from PLATFORM_FROM_NAME
-                f.seek(36)  # seek to e_flags (https://man7.org/linux/man-pages/man5/elf.5.html)
-                e_flags = int.from_bytes(f.read(4), sys.byteorder)
-                platform_name = PLATFORM_LINUX_ARMHF if e_flags & 0x400 else PLATFORM_LINUX_ARM32
+        platform_name = Platforms.detect_linux_arm_platform(platform_name)
         return platform_name
 
     @staticmethod
@@ -1384,44 +1407,33 @@ def get_python_exe_and_subdir() -> Tuple[str, str]:
 
 
 def get_idf_version() -> str:
-    version_file_path = os.path.join(global_idf_path, 'version.txt')  # type: ignore
+    """
+    Return ESP-IDF version.
+    """
+    idf_version: Optional[str] = None
+
+    version_file_path = os.path.join(global_idf_path or '', 'version.txt')
     if os.path.exists(version_file_path):
         with open(version_file_path, 'r') as version_file:
             idf_version_str = version_file.read()
-    else:
-        idf_version_str = ''
+
+        match = re.match(r'^v([0-9]+\.[0-9]+).*', idf_version_str)
+        if match:
+            idf_version = match.group(1)
+
+    if idf_version is None:
         try:
-            idf_version_str = subprocess.check_output(['git', 'describe'],
-                                                      cwd=global_idf_path, env=os.environ,
-                                                      stderr=subprocess.DEVNULL).decode()
-        except OSError:
-            # OSError should cover FileNotFoundError and WindowsError
-            warn('Git was not found')
-        except subprocess.CalledProcessError:
-            # This happens quite often when the repo is shallow. Don't print a warning because there are other
-            # possibilities for version detection.
-            pass
-    match = re.match(r'^v([0-9]+\.[0-9]+).*', idf_version_str)
-    if match:
-        idf_version = match.group(1)  # type: Optional[str]
-    else:
-        idf_version = None
-        # fallback when IDF is a shallow clone
-        try:
-            with open(os.path.join(global_idf_path, 'components', 'esp_common', 'include', 'esp_idf_version.h')) as f:  # type: ignore
+            with open(os.path.join(global_idf_path or '', 'components', 'esp_common', 'include', 'esp_idf_version.h')) as f:
                 m = re.search(r'^#define\s+ESP_IDF_VERSION_MAJOR\s+(\d+).+?^#define\s+ESP_IDF_VERSION_MINOR\s+(\d+)',
                               f.read(), re.DOTALL | re.MULTILINE)
                 if m:
                     idf_version = '.'.join((m.group(1), m.group(2)))
                 else:
-                    warn('Reading IDF version from C header file failed!')
+                    fatal('Reading IDF version from C header file failed!')
+                    raise SystemExit(1)
         except Exception as e:
-            warn('Is it not possible to determine the IDF version: {}'.format(e))
-
-    if idf_version is None:
-        fatal('IDF version cannot be determined')
-        raise SystemExit(1)
-
+            fatal(f'It is not possible to determine the IDF version: {e}')
+            raise SystemExit(1)
     return idf_version
 
 
@@ -1805,7 +1817,8 @@ def check_python_venv_compatibility(idf_python_env_path: str, idf_version: str) 
             raise SystemExit(1)
     except OSError as e:
         # perhaps the environment was generated before the support for VENV_VER_FILE was added
-        warn(f'Error while accessing the ESP-IDF version file in the Python environment: {e}')
+        warn(f'The following issue occurred while accessing the ESP-IDF version file in the Python environment: {e}. '
+             '(Diagnostic information. It can be ignored.)')
 
 
 def action_export(args):  # type: ignore
@@ -2221,18 +2234,12 @@ def action_install_python_env(args):  # type: ignore
         warn('Removing the existing Python environment in {}'.format(idf_python_env_path))
         shutil.rmtree(idf_python_env_path)
 
-    venv_can_upgrade = False
-
     if os.path.exists(virtualenv_python):
         check_python_venv_compatibility(idf_python_env_path, idf_version)
     else:
         if subprocess.run([sys.executable, '-m', 'venv', '-h'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
             # venv available
             virtualenv_options = ['--clear']  # delete environment if already exists
-            if sys.version_info[:2] >= (3, 9):
-                # upgrade pip & setuptools
-                virtualenv_options += ['--upgrade-deps']
-                venv_can_upgrade = True
 
             info('Creating a new Python environment in {}'.format(idf_python_env_path))
 
@@ -2261,7 +2268,8 @@ def action_install_python_env(args):  # type: ignore
                 with open(os.path.join(idf_python_env_path, VENV_VER_FILE), 'w') as f:
                     f.write(idf_version)
             except OSError as e:
-                warn(f'Error while generating the ESP-IDF version file in the Python environment: {e}')
+                warn(f'The following issue occurred while generating the ESP-IDF version file in the Python environment: {e}. '
+                     '(Diagnostic information. It can be ignored.)')
 
         else:
             # The embeddable Python for Windows doesn't have the built-in venv module
@@ -2272,17 +2280,19 @@ def action_install_python_env(args):  # type: ignore
         warn('Found PIP_USER="yes" in the environment. Disabling PIP_USER in this shell to install packages into a virtual environment.')
         env_copy['PIP_USER'] = 'no'
 
-    if not venv_can_upgrade:
-        info('Upgrading pip and setuptools...')
-        subprocess.check_call([virtualenv_python, '-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools'],
-                              stdout=sys.stdout, stderr=sys.stderr, env=env_copy)
+    constraint_file = get_constraints(idf_version) if use_constraints else None
+
+    info('Upgrading pip and setuptools...')
+    run_args = [virtualenv_python, '-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools']
+    if constraint_file:
+        run_args += ['--constraint', constraint_file]
+    subprocess.check_call(run_args, stdout=sys.stdout, stderr=sys.stderr, env=env_copy)
 
     run_args = [virtualenv_python, '-m', 'pip', 'install', '--no-warn-script-location']
     requirements_file_list = get_requirements(args.features)
     for requirement_file in requirements_file_list:
         run_args += ['-r', requirement_file]
-    if use_constraints:
-        constraint_file = get_constraints(idf_version)
+    if constraint_file:
         run_args += ['--upgrade', '--constraint', constraint_file]
     if args.extra_wheels_dir:
         run_args += ['--find-links', args.extra_wheels_dir]
@@ -2296,8 +2306,8 @@ def action_install_python_env(args):  # type: ignore
         run_args += ['--find-links', wheels_dir]
 
     info('Installing Python packages')
-    if use_constraints:
-        info(' Constraint file: {}'.format(constraint_file))
+    if constraint_file:
+        info(f' Constraint file: {constraint_file}')
     info(' Requirement files:')
     info(os.linesep.join('  - {}'.format(path) for path in requirements_file_list))
     subprocess.check_call(run_args, stdout=sys.stdout, stderr=sys.stderr, env=env_copy)
@@ -2400,7 +2410,7 @@ class ChecksumFileParser():
         try:
             for bytes_str, hash_str in zip(self.checksum[0::2], self.checksum[1::2]):
                 bytes_filename = self.parseLine(r'^# (\S*):', bytes_str)
-                hash_filename = self.parseLine(r'^\S* \*(\S*)', hash_str)
+                hash_filename = self.parseLine(r'^\S* [\* ](\S*)', hash_str)
                 if hash_filename != bytes_filename:
                     fatal('filename in hash-line and in bytes-line are not the same')
                     raise SystemExit(1)

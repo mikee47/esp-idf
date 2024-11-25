@@ -27,7 +27,7 @@ def pytest_runtest_makereport(item: typing.Any, call: typing.Any) -> typing.Gene
 
 def should_clean_test_dir(request: FixtureRequest) -> bool:
     # Only remove the test directory if the test has passed
-    return getattr(request.node, 'passed', False)
+    return getattr(request.node, 'passed', False) or request.config.getoption('cleanup_idf_copy', False)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -36,13 +36,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help='Directory for temporary files. If not specified, an OS-specific '
              'temporary directory will be used.'
     )
+    parser.addoption(
+        '--cleanup-idf-copy', action='store_true',
+        help='Always clean up the IDF copy after the test. By default, the copy is cleaned up only if the test passes.'
+    )
 
 
 @pytest.fixture(name='session_work_dir', scope='session', autouse=True)
 def fixture_session_work_dir(request: FixtureRequest) -> typing.Generator[Path, None, None]:
     work_dir = request.config.getoption('--work-dir')
     if work_dir:
-        work_dir = os.path.join(work_dir, datetime.datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S'))
+        work_dir = os.path.join(work_dir, datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d_%H-%M-%S'))
         logging.debug(f'using work directory: {work_dir}')
         os.makedirs(work_dir, exist_ok=True)
         clean_dir = None

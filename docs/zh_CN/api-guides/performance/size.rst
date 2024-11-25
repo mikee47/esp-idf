@@ -18,10 +18,6 @@ ESP-IDF 构建系统会编译项目和 ESP-IDF 中所有源文件，但只有程
 
 使用 :ref:`idf.py` 的子命令 ``size``， ``size-components`` 和 ``size-files`` 可以输出项目使用内存概况：
 
-.. note::
-
-    添加 ``-DOUTPUT_FORMAT=csv`` 或 ``-DOUTPUT_FORMAT=json``，即可用 CSV 或 JSON 格式输出文件。
-
 数据大小概况 ``idf.py size``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -495,6 +491,7 @@ MbedTLS 功能
 - :ref:`CONFIG_MBEDTLS_HAVE_TIME`
 - :ref:`CONFIG_MBEDTLS_ECDSA_DETERMINISTIC`
 - :ref:`CONFIG_MBEDTLS_SHA512_C`
+- :ref:`CONFIG_MBEDTLS_SHA3_C`
 - :ref:`CONFIG_MBEDTLS_CLIENT_SSL_SESSION_TICKETS`
 - :ref:`CONFIG_MBEDTLS_SERVER_SSL_SESSION_TICKETS`
 - :ref:`CONFIG_MBEDTLS_SSL_CONTEXT_SERIALIZATION`
@@ -505,8 +502,9 @@ MbedTLS 功能
 - :ref:`CONFIG_MBEDTLS_ECP_C` （或者：启用此选项，但在子菜单中禁用部分椭圆曲线）
 - :ref:`CONFIG_MBEDTLS_ECP_NIST_OPTIM`
 - :ref:`CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM`
-- 如果不需要 mbedTLS 的服务器和客户端功能，可以修改 :ref:`CONFIG_MBEDTLS_TLS_MODE`
+- 如果不需要 mbedTLS 的服务器和客户端功能，可以修改 :ref:`CONFIG_MBEDTLS_TLS_MODE`。
 - 可以考虑禁用在 ``TLS Key Exchange Methods`` 子菜单中列出的一些密码套件（例如 :ref:`CONFIG_MBEDTLS_KEY_EXCHANGE_RSA`），以减小代码大小。
+- 如果应用程序已经通过使用 :cpp:func:`mbedtls_strerror` 拉取 mbedTLS 错误字符串，则可以考虑禁用 :ref:`CONFIG_MBEDTLS_ERROR_STRINGS`。
 
 每个选项的帮助文本中都有更多信息可供参考。
 

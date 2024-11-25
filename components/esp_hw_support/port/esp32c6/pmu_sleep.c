@@ -201,11 +201,6 @@ const pmu_sleep_config_t* pmu_sleep_config_default(
 {
     pmu_sleep_power_config_t power_default = PMU_SLEEP_POWER_CONFIG_DEFAULT(pd_flags);
 
-    uint32_t iram_pd_flags = 0;
-    iram_pd_flags |= (pd_flags & PMU_SLEEP_PD_MEM_G0) ? BIT(0) : 0;
-    iram_pd_flags |= (pd_flags & PMU_SLEEP_PD_MEM_G1) ? BIT(1) : 0;
-    iram_pd_flags |= (pd_flags & PMU_SLEEP_PD_MEM_G2) ? BIT(2) : 0;
-    iram_pd_flags |= (pd_flags & PMU_SLEEP_PD_MEM_G3) ? BIT(3) : 0;
     config->power = power_default;
 
     pmu_sleep_param_config_t param_default = PMU_SLEEP_PARAM_CONFIG_DEFAULT(pd_flags);
@@ -235,6 +230,10 @@ const pmu_sleep_config_t* pmu_sleep_config_default(
             analog_default.lp_sys[LP(SLEEP)].analog.pd_cur = PMU_PD_CUR_SLEEP_ON;
             analog_default.lp_sys[LP(SLEEP)].analog.bias_sleep = PMU_BIASSLP_SLEEP_ON;
             analog_default.lp_sys[LP(SLEEP)].analog.dbg_atten = PMU_DBG_ATTEN_ACTIVE_DEFAULT;
+            analog_default.lp_sys[LP(SLEEP)].analog.dbias = get_act_lp_dbias();
+        } else if (!(pd_flags & PMU_SLEEP_PD_RC_FAST)) {
+            analog_default.hp_sys.analog.dbias = get_act_hp_dbias();
+            analog_default.lp_sys[LP(SLEEP)].analog.dbg_atten = PMU_DBG_ATTEN_LIGHTSLEEP_NODROP;
             analog_default.lp_sys[LP(SLEEP)].analog.dbias = get_act_lp_dbias();
         }
 
@@ -342,6 +341,9 @@ uint32_t pmu_sleep_start(uint32_t wakeup_opt, uint32_t reject_opt, uint32_t lslp
 
 bool pmu_sleep_finish(void)
 {
+    // Wait eFuse memory update done.
+    while(efuse_ll_get_controller_state() != EFUSE_CONTROLLER_STATE_IDLE);
+
     return pmu_ll_hp_is_sleep_reject(PMU_instance()->hal->dev);
 }
 

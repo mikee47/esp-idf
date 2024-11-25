@@ -10,6 +10,7 @@
 #include "btc/btc_common.h"
 #include "btc/btc_dm.h"
 #include "btc/btc_main.h"
+#include "btc/btc_util.h"
 #include "common/bt_trace.h"
 #include "common/bt_target.h"
 #include "btc/btc_storage.h"
@@ -624,6 +625,7 @@ static void btc_dm_pm_mode_chg_evt(tBTA_DM_MODE_CHG *p_mode_chg)
     msg->act = BTC_GAP_BT_MODE_CHG_EVT;
     memcpy(param.mode_chg.bda, p_mode_chg->bd_addr, ESP_BD_ADDR_LEN);
     param.mode_chg.mode = p_mode_chg->mode;
+    param.mode_chg.interval= p_mode_chg->interval;
     memcpy(msg->arg, &param, sizeof(esp_bt_gap_cb_param_t));
 
     ret = btc_inter_profile_call(msg);
@@ -717,14 +719,14 @@ static void btc_dm_acl_link_stat(tBTA_DM_ACL_LINK_STAT *p_acl_link_stat)
     switch (p_acl_link_stat->event) {
     case BTA_ACL_LINK_STAT_CONN_CMPL: {
         event = ESP_BT_GAP_ACL_CONN_CMPL_STAT_EVT;
-        param.acl_conn_cmpl_stat.stat = p_acl_link_stat->link_act.conn_cmpl.status | ESP_BT_STATUS_BASE_FOR_HCI_ERR;
+        param.acl_conn_cmpl_stat.stat = btc_hci_to_esp_status(p_acl_link_stat->link_act.conn_cmpl.status);
         param.acl_conn_cmpl_stat.handle = p_acl_link_stat->link_act.conn_cmpl.handle;
         memcpy(param.acl_conn_cmpl_stat.bda, p_acl_link_stat->link_act.conn_cmpl.bd_addr, ESP_BD_ADDR_LEN);
         break;
     }
     case BTA_ACL_LINK_STAT_DISCONN_CMPL: {
         event = ESP_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT;
-        param.acl_disconn_cmpl_stat.reason = p_acl_link_stat->link_act.disconn_cmpl.reason | ESP_BT_STATUS_BASE_FOR_HCI_ERR;
+        param.acl_disconn_cmpl_stat.reason = btc_hci_to_esp_status(p_acl_link_stat->link_act.disconn_cmpl.reason);
         param.acl_disconn_cmpl_stat.handle = p_acl_link_stat->link_act.disconn_cmpl.handle;
         memcpy(param.acl_disconn_cmpl_stat.bda, p_acl_link_stat->link_act.disconn_cmpl.bd_addr, ESP_BD_ADDR_LEN);
         break;
@@ -788,7 +790,7 @@ void btc_dm_sec_cb_handler(btc_msg_t *msg)
         /* Set initial device name, it can be overwritten later */
         if (p_data->enable.status == BTA_SUCCESS) {
             const char *initial_device_name = "ESP32";
-            BTA_DmSetDeviceName(initial_device_name);
+            BTA_DmSetDeviceName(initial_device_name, BT_DEVICE_TYPE_DUMO);
         }
         btc_enable_bluetooth_evt(p_data->enable.status);
         break;

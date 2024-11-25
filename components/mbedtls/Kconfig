@@ -123,7 +123,7 @@ menu "mbedTLS"
 
             The option will decrease heap cost when handshake, but also lead to problem:
 
-            Becasue all certificate, private key and DHM data are freed so users should register
+            Because all certificate, private key and DHM data are freed so users should register
             certificate and private key to ssl config object again.
 
     config MBEDTLS_DYNAMIC_FREE_CA_CERT
@@ -448,6 +448,17 @@ menu "mbedTLS"
 
             These operations are used by RSA.
 
+    config MBEDTLS_LARGE_KEY_SOFTWARE_MPI
+        bool "Fallback to software implementation for larger MPI values"
+        depends on MBEDTLS_HARDWARE_MPI
+        default y if SOC_RSA_MAX_BIT_LEN <= 3072 # HW max 3072 bits
+        default n
+        help
+            Fallback to software implementation for RSA key lengths
+            larger than SOC_RSA_MAX_BIT_LEN. If this is not active
+            then the ESP will be unable to process keys greater
+            than SOC_RSA_MAX_BIT_LEN.
+
     config MBEDTLS_MPI_USE_INTERRUPT
         bool "Use interrupt for MPI exp-mod operations"
         depends on !IDF_TARGET_ESP32 && MBEDTLS_HARDWARE_MPI
@@ -521,6 +532,37 @@ menu "mbedTLS"
 
             The key should be burnt in little endian format. espefuse.py utility handles it internally
             but care needs to be taken while burning using esp_efuse APIs
+
+    menu "Enable Software Countermeasure for ECDSA signing using on-chip ECDSA peripheral"
+        depends on MBEDTLS_HARDWARE_ECDSA_SIGN
+        depends on IDF_TARGET_ESP32H2
+        config MBEDTLS_HARDWARE_ECDSA_SIGN_MASKING_CM
+            bool "Mask original ECDSA sign operation under dummy sign operations"
+            select HAL_ECDSA_GEN_SIG_CM
+            # ToDo: IDF-11051
+            default y
+            help
+                The ECDSA peripheral before ECO5 does not offer constant time ECDSA sign operation.
+                This time can be observed through power profiling of the device,
+                making the ECDSA private key vulnerable to side-channel timing attacks.
+                This countermeasure masks the real ECDSA sign operation
+                under dummy sign operations to add randomness in the generated power signature.
+                It is highly recommended to also enable Secure Boot for the device in addition to this countermeasure
+                so that only trusted software can execute on the device.
+
+        config MBEDTLS_HARDWARE_ECDSA_SIGN_CONSTANT_TIME_CM
+            bool "Make ECDSA signature operation pseudo constant time for software"
+            default y
+            help
+                This option adds a delay after the actual ECDSA signature operation
+                so that the entire operation appears to be constant time for the software.
+                This fix helps in protecting the device only in case of remote timing attack on the ECDSA private key.
+                For e.g., When an interface is exposed by the device to perform ECDSA signature
+                of an arbitrary message.
+                The signature time would appear to be constant to the external entity after enabling
+                this option.
+
+    endmenu
 
     config MBEDTLS_HARDWARE_ECDSA_VERIFY
         bool "Enable ECDSA signature verification using on-chip ECDSA peripheral"
@@ -609,6 +651,14 @@ menu "mbedTLS"
         default y
         help
             Enable MBEDTLS_SHA512_C adds support for SHA-384 and SHA-512.
+
+    config MBEDTLS_SHA3_C
+        bool "Enable the SHA3 cryptographic hash algorithm"
+        default n
+        help
+            Enabling MBEDTLS_SHA3_C adds support for SHA3.
+            Enabling this configuration option increases the flash footprint
+            by almost 4KB.
 
     choice MBEDTLS_TLS_MODE
         bool "TLS Protocol Role"
@@ -888,13 +938,13 @@ menu "mbedTLS"
             bool "X.509 CRL parsing"
             default y
             help
-                Support for parsing X.509 Certifificate Revocation Lists.
+                Support for parsing X.509 Certificate Revocation Lists.
 
         config MBEDTLS_X509_CSR_PARSE_C
             bool "X.509 CSR parsing"
             default y
             help
-                Support for parsing X.509 Certifificate Signing Requests
+                Support for parsing X.509 Certificate Signing Requests
 
     endmenu # Certificates
 
@@ -1029,12 +1079,12 @@ menu "mbedTLS"
     config MBEDTLS_ECP_FIXED_POINT_OPTIM
         bool "Enable fixed-point multiplication optimisations"
         depends on MBEDTLS_ECP_C
-        default y
+        default n
         help
             This configuration option enables optimizations to speedup (about 3 ~ 4 times) the ECP
             fixed point multiplication using pre-computed tables in the flash memory.
-            Disabling this configuration option saves flash footprint (about 29KB if all Elliptic Curve selected)
-            in the application binary.
+            Enabling this configuration option increases the flash footprint
+            (about 29KB if all Elliptic Curve selected) in the application binary.
 
             # end of Elliptic Curve options
 
@@ -1085,36 +1135,47 @@ menu "mbedTLS"
         help
             Enable the pthread wrapper layer for the threading layer.
 
-    config MBEDTLS_LARGE_KEY_SOFTWARE_MPI
-        bool "Fallback to software implementation for larger MPI values"
-        depends on MBEDTLS_HARDWARE_MPI
-        default y if SOC_RSA_MAX_BIT_LEN <= 3072 # HW max 3072 bits
-        default n
+    config MBEDTLS_ERROR_STRINGS
+        bool "Enable error code to error string conversion"
+        default y
         help
-            Fallback to software implementation for RSA key lengths
-            larger than SOC_RSA_MAX_BIT_LEN. If this is not active
-            then the ESP will be unable to process keys greater
-            than SOC_RSA_MAX_BIT_LEN.
+            Enables mbedtls_strerror() for converting error codes to error strings.
+            Disabling this config can save some code/rodata size as the error
+            string conversion implementation is replaced with an empty stub.
 
     config MBEDTLS_USE_CRYPTO_ROM_IMPL
         bool "Use ROM implementation of the crypto algorithm"
-        depends on ESP_ROM_HAS_MBEDTLS_CRYPTO_LIB && IDF_EXPERIMENTAL_FEATURES
+        depends on ESP_ROM_HAS_MBEDTLS_CRYPTO_LIB
         default "n"
         select MBEDTLS_SHA512_C
         select MBEDTLS_AES_C
         select MBEDTLS_CCM_C
+        select MBEDTLS_CMAC_C
         select MBEDTLS_ROM_MD5
         select MBEDTLS_HARDWARE_SHA
+        select MBEDTLS_ECP_RESTARTABLE
+        select MBEDTLS_THREADING_C
         help
             Enable this flag to use mbedtls crypto algorithm from ROM instead of ESP-IDF.
 
             This configuration option saves flash footprint in the application binary.
-            Note that the version of mbedtls crypto algorithm library in ROM is v2.16.12.
-            We have done the security analysis of the mbedtls revision in ROM (v2.16.12)
+            Note that the version of mbedtls crypto algorithm library in ROM(ECO1~ECO3) is v2.16.12,
+            and the version of mbedtls crypto algorithm library in ROM(ECO4) is v3.6.0.
+            We have done the security analysis of the mbedtls revision in ROM (ECO1~ECO4)
             and ensured that affected symbols have been patched (removed). If in the future
             mbedtls revisions there are security issues that also affects the version in
-            ROM (v2.16.12) then we shall patch the relevant symbols. This would increase
+            ROM (ECO1~ECO4) then we shall patch the relevant symbols. This would increase
             the flash footprint and hence care must be taken to keep some reserved space
             for the application binary in flash layout.
+
+    config MBEDTLS_FS_IO
+        bool "Enable functions that use the filesystem"
+        default y
+        depends on (VFS_SUPPORT_IO && VFS_SUPPORT_DIR) || IDF_TARGET_LINUX
+        help
+            This option enables functions in mbedTLS that use the filesystem.
+            It uses the default filesystem support for the target,
+            which is added through vfs component for ESP32 based targets or by
+            the host system when the target is Linux.
 
 endmenu  # mbedTLS

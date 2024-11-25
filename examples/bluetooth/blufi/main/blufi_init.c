@@ -32,8 +32,7 @@
 esp_err_t esp_blufi_host_init(void)
 {
     int ret;
-    esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
-    ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
+    ret = esp_bluedroid_init();
     if (ret) {
         BLUFI_ERROR("%s init bluedroid failed: %s\n", __func__, esp_err_to_name(ret));
         return ESP_FAIL;
@@ -234,17 +233,18 @@ esp_err_t esp_blufi_host_deinit(void)
 {
     esp_err_t ret = ESP_OK;
 
+    ret = nimble_port_stop();
+
+    if (ret == 0) {
+        esp_nimble_deinit();
+    }
+
     ret = esp_blufi_profile_deinit();
     if(ret != ESP_OK) {
         return ret;
     }
 
     esp_blufi_btc_deinit();
-
-    ret = nimble_port_stop();
-    if (ret == 0) {
-        esp_nimble_deinit();
-    }
 
     return ret;
 }

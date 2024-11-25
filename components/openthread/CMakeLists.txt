@@ -15,7 +15,6 @@ if(CONFIG_OPENTHREAD_ENABLED)
 
     set(private_include_dirs
         "openthread/examples/platforms"
-        "openthread/include/openthread"
         "openthread/src"
         "openthread/src/core"
         "openthread/src/lib"
@@ -84,6 +83,7 @@ if(CONFIG_OPENTHREAD_ENABLED)
             "openthread/src/core/api/nat64_api.cpp"
             "openthread/src/core/api/netdata_api.cpp"
             "openthread/src/core/api/netdiag_api.cpp"
+            "openthread/src/core/api/network_time_api.cpp"
             "openthread/src/core/api/random_crypto_api.cpp"
             "openthread/src/core/api/tcp_api.cpp"
             "openthread/src/core/api/udp_api.cpp"
@@ -111,7 +111,9 @@ if(CONFIG_OPENTHREAD_ENABLED)
             "openthread/src/core/thread/mesh_forwarder_ftd.cpp"
             "openthread/src/core/thread/mesh_forwarder_mtd.cpp"
             "openthread/src/core/thread/mle.cpp"
+            "openthread/src/core/thread/mle_router.cpp"
             "openthread/src/core/thread/mle_types.cpp"
+            "openthread/src/core/thread/neighbor.cpp"
             "openthread/src/core/thread/neighbor_table.cpp"
             "openthread/src/core/thread/network_data.cpp"
             "openthread/src/core/thread/network_data_leader.cpp"
@@ -121,6 +123,7 @@ if(CONFIG_OPENTHREAD_ENABLED)
             "openthread/src/core/thread/network_diagnostic.cpp"
             "openthread/src/core/thread/panid_query_server.cpp"
             "openthread/src/core/thread/thread_netif.cpp"
+            "openthread/src/core/thread/time_sync_service.cpp"
             "openthread/src/core/thread/tmf.cpp"
             "openthread/src/core/thread/topology.cpp"
             "openthread/src/core/utils/child_supervision.cpp")
@@ -136,6 +139,19 @@ if(CONFIG_OPENTHREAD_ENABLED)
         list(APPEND exclude_srcs
             "src/port/esp_openthread_radio.c"
             "src/port/esp_openthread_sleep.c")
+    elseif(CONFIG_OPENTHREAD_RADIO_154_NONE)
+        list(APPEND exclude_srcs
+            "src/port/esp_openthread_radio_spinel.cpp"
+            "src/port/esp_spi_spinel_interface.cpp"
+            "src/port/esp_uart_spinel_interface.cpp"
+            "src/port/esp_openthread_radio.c"
+            "src/port/esp_openthread_sleep.c"
+            )
+    endif()
+
+    if(NOT CONFIG_OPENTHREAD_RADIO_TREL)
+        list(APPEND exclude_srcs
+            "src/port/esp_openthread_trel.c")
     endif()
 
     if(CONFIG_OPENTHREAD_BORDER_ROUTER)
@@ -152,6 +168,13 @@ if(CONFIG_OPENTHREAD_ENABLED)
     if(CONFIG_OPENTHREAD_NCP_VENDOR_HOOK)
         list(APPEND src_dirs
             "src/ncp")
+        if(CONFIG_OPENTHREAD_RCP_UART)
+            list(APPEND exclude_srcs
+                "src/ncp/esp_openthread_ncp_spi.cpp")
+        elseif(CONFIG_OPENTHREAD_RCP_SPI)
+            list(APPEND exclude_srcs
+                "src/ncp/esp_openthread_ncp_hdlc.cpp")
+        endif()
     endif()
 
     if(NOT CONFIG_OPENTHREAD_DNS64_CLIENT)
@@ -235,9 +258,9 @@ execute_process(
 
 string(TIMESTAMP OT_BUILD_TIMESTAMP " %Y-%m-%d %H:%M:%S UTC" UTC)
 string(CONCAT OT_FULL_VERSION_STRING
-       "openthread-esp32/"
+       "${CONFIG_OPENTHREAD_PACKAGE_NAME}/"
        "${IDF_VERSION_FOR_OPENTHREAD_PACKAGE}-${OPENTHREAD_VERSION}\; "
-       "${CONFIG_IDF_TARGET}\; ${OT_BUILD_TIMESTAMP}")
+       "${CONFIG_OPENTHREAD_PLATFORM_INFO}\; ${OT_BUILD_TIMESTAMP}")
 
 idf_component_register(SRC_DIRS "${src_dirs}"
                        EXCLUDE_SRCS "${exclude_srcs}"
@@ -247,6 +270,10 @@ idf_component_register(SRC_DIRS "${src_dirs}"
                        LDFRAGMENTS linker.lf
                        PRIV_REQUIRES console esp_event esp_partition esp_timer
                                      ieee802154 mbedtls nvs_flash)
+
+if(CONFIG_OPENTHREAD_RADIO_TREL)
+    idf_component_optional_requires(PRIVATE espressif__mdns)
+endif()
 
 if(CONFIG_OPENTHREAD_ENABLED OR CONFIG_OPENTHREAD_SPINEL_ONLY)
     if(CONFIG_OPENTHREAD_RADIO)
@@ -263,6 +290,8 @@ if(CONFIG_OPENTHREAD_ENABLED OR CONFIG_OPENTHREAD_SPINEL_ONLY)
         ${COMPONENT_LIB}
         PUBLIC
         "OPENTHREAD_CONFIG_FILE=\"openthread-core-esp32x-${CONFIG_FILE_TYPE}-config.h\""
+            "${device_type}"
+        "OPENTHREAD_PROJECT_LIB_CONFIG_FILE=\"openthread-core-esp32x-${CONFIG_FILE_TYPE}-config.h\""
             "${device_type}"
         PRIVATE
         "PACKAGE_VERSION=\"${IDF_VERSION_FOR_OPENTHREAD_PACKAGE}-${OPENTHREAD_VERSION}\""

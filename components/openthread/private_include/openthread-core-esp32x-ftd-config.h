@@ -14,7 +14,7 @@
  * The platform-specific string to insert into the OpenThread version string.
  *
  */
-#define OPENTHREAD_CONFIG_PLATFORM_INFO CONFIG_IDF_TARGET
+#define OPENTHREAD_CONFIG_PLATFORM_INFO CONFIG_OPENTHREAD_PLATFORM_INFO
 
 /**
  * @def OPENTHREAD_CONFIG_PLATFORM_ASSERT_MANAGEMENT
@@ -204,16 +204,6 @@
 #endif
 
 /**
- * @def OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE
- *
- * Set to 1 to enable support for Thread Radio Encapsulation Link (TREL).
- *
- */
-#ifndef OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE
-#define OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE 0
-#endif
-
-/**
  * @def OPENTHREAD_CONFIG_BACKBONE_ROUTER_ENABLE
  *
  * Define to 1 to enable Backbone Router support.
@@ -224,6 +214,28 @@
 #endif
 
 #endif // CONFIG_OPENTHREAD_BORDER_ROUTER
+
+/**
+ * @def OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE
+ *
+ * Set to 1 to enable support for Thread Radio Encapsulation Link (TREL).
+ *
+ */
+#if CONFIG_OPENTHREAD_RADIO_TREL
+#define OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE 1
+#endif // CONFIG_OPENTHREAD_RADIO_TREL
+
+/**
+ * @def OPENTHREAD_CONFIG_RADIO_LINK_IEEE_802_15_4_ENABLE
+ *
+ * Set to 1 to enable support for IEEE802.15.4 radio link.
+ *
+ */
+#if !CONFIG_OPENTHREAD_RADIO_154_NONE
+#define OPENTHREAD_CONFIG_RADIO_LINK_IEEE_802_15_4_ENABLE 1
+#else
+#define OPENTHREAD_CONFIG_RADIO_LINK_IEEE_802_15_4_ENABLE 0
+#endif
 
 #if !CONFIG_OPENTHREAD_RADIO_NATIVE
 /**
@@ -317,7 +329,7 @@
  * Define to the full name of this package.
  *
  */
-#define PACKAGE_NAME "openthread-esp32"
+#define PACKAGE_NAME CONFIG_OPENTHREAD_PACKAGE_NAME
 
 /**
  * @def PACKAGE_STRING
@@ -355,13 +367,13 @@
 #define OPENTHREAD_CONFIG_MAX_STATECHANGE_HANDLERS 3
 
 /**
- * @def OPENTHREAD_CONFIG_PLATFORM_RADIO_SPINEL_RX_FRAME_BUFFER_SIZE
+ * @def OPENTHREAD_LIB_SPINEL_RX_FRAME_BUFFER_SIZE
  *
  * Specifies the rx frame buffer size used by `SpinelInterface` in RCP host code. This is applicable/used when
  * `RadioSpinel` platform is used.
  *
  */
-#define OPENTHREAD_CONFIG_PLATFORM_RADIO_SPINEL_RX_FRAME_BUFFER_SIZE CONFIG_OPENTHREAD_SPINEL_RX_FRAME_BUFFER_SIZE
+#define OPENTHREAD_LIB_SPINEL_RX_FRAME_BUFFER_SIZE CONFIG_OPENTHREAD_SPINEL_RX_FRAME_BUFFER_SIZE
 
 /**
  * @def OPENTHREAD_CONFIG_PLATFORM_USEC_TIMER_ENABLE
@@ -618,6 +630,22 @@
  */
 #ifndef OPENTHREAD_CONFIG_TMF_ADDRESS_QUERY_MAX_RETRY_DELAY
 #define OPENTHREAD_CONFIG_TMF_ADDRESS_QUERY_MAX_RETRY_DELAY CONFIG_OPENTHREAD_ADDRESS_QUERY_MAX_RETRY_DELAY
+#endif
+
+/**
+ * @def OPENTHREAD_CONFIG_MAC_MAX_CSMA_BACKOFFS_DIRECT
+ *
+ * The maximum number of backoffs the CSMA-CA algorithm will attempt before declaring a channel access failure.
+ *
+ * Equivalent to macMaxCSMABackoffs in IEEE 802.15.4-2006, default value is 4.
+ *
+ */
+#ifndef OPENTHREAD_CONFIG_MAC_MAX_CSMA_BACKOFFS_DIRECT
+#define OPENTHREAD_CONFIG_MAC_MAX_CSMA_BACKOFFS_DIRECT CONFIG_OPENTHREAD_MAC_MAX_CSMA_BACKOFFS_DIRECT
+#endif
+
+#ifndef OPENTHREAD_CONFIG_THREAD_VERSION
+#define OPENTHREAD_CONFIG_THREAD_VERSION OT_THREAD_VERSION_1_4
 #endif
 
 #define OPENTHREAD_FTD 1

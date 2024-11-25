@@ -104,6 +104,8 @@ I2C master device requires the configuration that specified by :cpp:type:`i2c_de
 - :cpp:member:`i2c_device_config_t::dev_addr_length` configure the address bit length of the slave device. User can choose from enumerator :cpp:enumerator:`I2C_ADDR_BIT_LEN_7` or :cpp:enumerator:`I2C_ADDR_BIT_LEN_10` (if supported).
 - :cpp:member:`i2c_device_config_t::device_address` I2C device raw address. Please parse the device address to this member directly. For example, the device address is 0x28, then parse 0x28 to :cpp:member:`i2c_device_config_t::device_address`, don't carry a write/read bit.
 - :cpp:member:`i2c_device_config_t::scl_speed_hz` set the scl line frequency of this device.
+- :cpp:member:`i2c_device_config_t::scl_wait_us`. SCL await time (in us). Usually this value should not be very small because slave stretch will happen in pretty long time. (It's possible even stretch for 12ms). Set 0 means use default reg value.
+
 
 Once the :cpp:type:`i2c_device_config_t` structure is populated with mandatory parameters, users can call :cpp:func:`i2c_master_bus_add_device` to allocate an I2C device instance and mounted to the master bus then. This function will return an I2C device handle if it runs correctly. Specifically, when the I2C bus is not initialized properly, calling this function will result in a :c:macro:`ESP_ERR_INVALID_ARG` error.
 
@@ -131,6 +133,26 @@ Once the :cpp:type:`i2c_device_config_t` structure is populated with mandatory p
 
     i2c_master_dev_handle_t dev_handle;
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle));
+
+Get I2C master handle via port
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Given that i2c master handle has been initialized in some module(e.g. an audio module), an another module(e.g. a video module) is not convenient to reused the handle. We have a helper function, :cpp:func:`i2c_master_get_bus_handle` for getting the initialized handle via port. However, please make sure the handle has already been initialized ahead of time. Otherwise an error would be reported.
+
+.. code:: c
+
+    // Source File 1
+    #include "driver/i2c_master.h"
+    i2c_master_bus_handle_t bus_handle;
+    i2c_master_bus_config_t i2c_mst_config = {
+        ... // same as others
+    };
+    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_mst_config, &bus_handle));
+
+    // Source File 2
+    #include "driver/i2c_master.h"
+    i2c_master_bus_handle_t handle;
+    ESP_ERROR_CHECK(i2c_master_get_bus_handle(0, &handle));
 
 Uninstall I2C master bus and device
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -296,6 +318,10 @@ I2C Master Probe
 ~~~~~~~~~~~~~~~~
 
 I2C driver can use :cpp:func:`i2c_master_probe` to detect whether the specific device has been connected on I2C bus. If this function return ``ESP_OK``, that means the device has been detected.
+
+.. important::
+
+    Pull-ups must be connected to the SCL and SDA pins when this function is called. If you get `ESP_ERR_TIMEOUT` while `xfer_timeout_ms` was parsed correctly, you should check the pull-up resistors. If you do not have proper resistors nearby, setting `flags.enable_internal_pullup` as true is also acceptable.
 
 .. figure:: ../../../_static/diagrams/i2c/i2c_master_probe.png
     :align: center

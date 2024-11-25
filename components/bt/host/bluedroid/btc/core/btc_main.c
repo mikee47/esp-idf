@@ -60,6 +60,7 @@ static void btc_init_bluetooth(void)
 #if (BLE_INCLUDED == TRUE)
     //load the ble local key which has been stored in the flash
     btc_dm_load_ble_local_keys();
+    bta_dm_co_security_param_init();
 #endif  ///BLE_INCLUDED == TRUE
 #endif /* #if (SMP_INCLUDED) */
 #if BTA_DYNAMIC_MEMORY
@@ -138,6 +139,12 @@ uint32_t btc_get_ble_status(void)
     extern uint8_t gatt_tcb_active_count(void);
     if (gatt_tcb_active_count()) {
         status |= BIT(BTC_BLE_STATUS_CONN);
+    }
+
+    // Address resolve status
+    extern uint8_t btm_get_ble_addr_resolve_disable_status(void);
+    if (btm_get_ble_addr_resolve_disable_status()) {
+        status |= BIT(BTC_BLE_STATUS_ADDR_RESOLVE_DISABLE);
     }
 
     #if (SMP_INCLUDED == TRUE)

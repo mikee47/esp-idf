@@ -621,7 +621,7 @@ BOOLEAN btsnd_hcic_write_voice_settings(UINT16 flags);            /* Write Voice
 
 
 BOOLEAN btsnd_hcic_write_auto_flush_tout(UINT16 handle,
-        UINT16 timeout);    /* Write Retransmit Timout */
+        UINT16 timeout);    /* Write Retransmit Timeout */
 
 #define HCIC_PARAM_SIZE_WRITE_AUTO_FLUSH_TOUT    4
 
@@ -754,6 +754,8 @@ void btsnd_hcic_vendor_spec_cmd (BT_HDR *buffer, UINT16 opcode,
 #define HCIC_PARAM_SIZE_BLE_WRITE_EXTENDED_SCAN_PARAM   11
 #define HCIC_PARAM_SIZE_BLE_UPDATE_ADV_FLOW_CONTROL     2
 #define HCIC_PARAM_SIZE_BLE_CLEAR_ADV                   0
+#define HCIC_PARAM_SIZE_SET_PRIVACY_MODE                8
+#define HCIC_PARAM_SIZE_BLE_SET_CSA_SUPPORT             1
 #if (BLE_50_FEATURE_SUPPORT == TRUE)
 #define HCIC_PARAM_SIZE_BLE_READ_PHY                   2
 #define HCIC_PARAM_SIZE_BLE_SET_DEF_PHY                3
@@ -909,7 +911,12 @@ BOOLEAN btsnd_hcic_ble_set_rand_priv_addr_timeout (UINT16 rpa_timout);
 
 BOOLEAN btsnd_hcic_ble_clear_adv(void);
 
+BOOLEAN btsnd_hcic_ble_set_privacy_mode(UINT8 addr_type, BD_ADDR addr, UINT8 privacy_mode);
+
+BOOLEAN btsnd_hcic_ble_set_csa_support (UINT8 csa_select);
+
 #endif /* BLE_INCLUDED */
+
 #if (BLE_50_FEATURE_SUPPORT == TRUE)
 typedef struct {
     UINT8 scan_type;

@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 #define ESP_BT_CTRL_CONFIG_MAGIC_VAL    0x5A5AA5A5
-#define ESP_BT_CTRL_CONFIG_VERSION      0x02401120
+#define ESP_BT_CTRL_CONFIG_VERSION      0x02410230
 
 #define ESP_BT_HCI_TL_MAGIC_VALUE   0xfadebead
 #define ESP_BT_HCI_TL_VERSION       0x00010000
@@ -194,6 +194,18 @@ typedef void (* esp_bt_hci_tl_callback_t) (void *arg, uint8_t status);
 #define BT_BLE_ADV_DATA_LENGTH_ZERO_AUX (0)
 #endif
 
+#if defined(CONFIG_BT_CTRL_CHAN_ASS_EN)
+#define BT_CTRL_CHAN_ASS_EN (CONFIG_BT_CTRL_CHAN_ASS_EN)
+#else
+#define BT_CTRL_CHAN_ASS_EN (0)
+#endif
+
+#if defined(CONFIG_BT_CTRL_LE_PING_EN)
+#define BT_CTRL_LE_PING_EN (CONFIG_BT_CTRL_LE_PING_EN)
+#else
+#define BT_CTRL_LE_PING_EN (0)
+#endif
+
 #define AGC_RECORRECT_EN       ((BT_CTRL_AGC_RECORRECT_EN << 0) | (BT_CTRL_CODED_AGC_RECORRECT <<1) | (BT_CTRL_AGC_RECORRECT_NEW << 2))
 
 #define CFG_MASK_BIT_SCAN_DUPLICATE_OPTION    (1<<0)
@@ -204,6 +216,76 @@ typedef void (* esp_bt_hci_tl_callback_t) (void *arg, uint8_t status);
 #else // CONFIG_IDF_TARGET_ESP32S3
 #define BLE_HW_TARGET_CODE_CHIP_ECO0                      (0x02010000)
 #endif
+
+#ifdef CONFIG_BT_CTRL_BLE_LLCP_CONN_UPDATE
+#define BT_CTRL_BLE_LLCP_CONN_UPDATE (1<<0)
+#else
+#define BT_CTRL_BLE_LLCP_CONN_UPDATE (0<<0)
+#endif
+
+#ifdef CONFIG_BT_CTRL_BLE_LLCP_CHAN_MAP_UPDATE
+#define BT_CTRL_BLE_LLCP_CHAN_MAP_UPDATE (1<<1)
+#else
+#define BT_CTRL_BLE_LLCP_CHAN_MAP_UPDATE (0<<1)
+#endif
+
+#ifdef CONFIG_BT_CTRL_BLE_LLCP_PHY_UPDATE
+#define BT_CTRL_BLE_LLCP_PHY_UPDATE (1<<2)
+#else
+#define BT_CTRL_BLE_LLCP_PHY_UPDATE (0<<2)
+#endif
+
+#define BT_CTRL_BLE_LLCP_DISC_FLAG (BT_CTRL_BLE_LLCP_CONN_UPDATE | BT_CTRL_BLE_LLCP_CHAN_MAP_UPDATE | BT_CTRL_BLE_LLCP_PHY_UPDATE)
+#if defined(CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY)
+#define BT_CTRL_RUN_IN_FLASH_ONLY  CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY
+#else
+#define BT_CTRL_RUN_IN_FLASH_ONLY  (0)
+#endif
+
+#if (BT_CTRL_RUN_IN_FLASH_ONLY == 1)
+
+#if defined(CONFIG_BT_CTRL_DTM_ENABLE)
+#define BT_CTRL_DTM_ENABLE  CONFIG_BT_CTRL_DTM_ENABLE
+#else
+#define BT_CTRL_DTM_ENABLE  (0)
+#endif
+
+#if defined(CONFIG_BT_CTRL_BLE_MASTER)
+#define BT_CTRL_BLE_MASTER  CONFIG_BT_CTRL_BLE_MASTER
+#else
+#define BT_CTRL_BLE_MASTER  (0)
+#endif
+
+#if defined(CONFIG_BT_CTRL_BLE_TEST)
+#define BT_CTRL_BLE_TEST  CONFIG_BT_CTRL_BLE_TEST
+#else
+#define BT_CTRL_BLE_TEST  (0)
+#endif
+
+#if defined (CONFIG_BT_NIMBLE_SECURITY_ENABLE) || defined (CONFIG_BT_BLE_SMP_ENABLE)
+#ifdef CONFIG_BT_NIMBLE_SECURITY_ENABLE
+#define BLE_SECURITY_ENABLE  (CONFIG_BT_NIMBLE_SECURITY_ENABLE)
+#endif //CONFIG_BT_NIMBLE_SECURITY_ENABLE
+#ifdef CONFIG_BT_BLE_SMP_ENABLE
+#define BLE_SECURITY_ENABLE  (CONFIG_BT_BLE_SMP_ENABLE)
+#endif //CONFIG_BT_BLE_SMP_ENABLE
+#else
+#define BLE_SECURITY_ENABLE  (0)
+#endif // (CONFIG_BT_NIMBLE_SECURITY_ENABLE) || (CONFIG_BT_BLE_SMP_ENABLE)
+
+#if defined (CONFIG_BT_CTRL_BLE_SCAN)
+#define BT_CTRL_BLE_SCAN    CONFIG_BT_CTRL_BLE_SCAN
+#else
+#define BT_CTRL_BLE_SCAN    (0)
+#endif
+
+#else
+#define BT_CTRL_BLE_MASTER   (1)
+#define BT_CTRL_DTM_ENABLE   (1)
+#define BT_CTRL_BLE_TEST     (1)
+#define BLE_SECURITY_ENABLE  (1)
+#define BT_CTRL_BLE_SCAN     (1)
+#endif // (BT_CTRL_RUN_IN_FLASH_ONLY == 1)
 
 #define BT_CONTROLLER_INIT_CONFIG_DEFAULT() {                              \
     .magic = ESP_BT_CTRL_CONFIG_MAGIC_VAL,                                 \
@@ -241,6 +323,15 @@ typedef void (* esp_bt_hci_tl_callback_t) (void *arg, uint8_t status);
     .ble_50_feat_supp  = BT_CTRL_50_FEATURE_SUPPORT,                       \
     .ble_cca_mode = BT_BLE_CCA_MODE,                                       \
     .ble_data_lenth_zero_aux = BT_BLE_ADV_DATA_LENGTH_ZERO_AUX,            \
+    .ble_chan_ass_en = BT_CTRL_CHAN_ASS_EN,                                \
+    .ble_ping_en = BT_CTRL_LE_PING_EN,                                     \
+    .ble_llcp_disc_flag = BT_CTRL_BLE_LLCP_DISC_FLAG,                      \
+    .run_in_flash = BT_CTRL_RUN_IN_FLASH_ONLY,                             \
+    .dtm_en = BT_CTRL_DTM_ENABLE,                                          \
+    .enc_en = BLE_SECURITY_ENABLE,                                         \
+    .qa_test = BT_CTRL_BLE_TEST,                                           \
+    .master_en = BT_CTRL_BLE_MASTER,                                       \
+    .scan_en = BT_CTRL_BLE_SCAN,                                           \
 }
 
 #else
@@ -289,7 +380,7 @@ typedef struct {
     uint8_t sleep_clock;                    /*!< controller sleep clock */
     uint8_t ble_st_acl_tx_buf_nb;           /*!< controller static ACL TX BUFFER number */
     uint8_t ble_hw_cca_check;               /*!< controller hardware triggered CCA check */
-    uint16_t ble_adv_dup_filt_max;          /*!< maxinum number of duplicate scan filter */
+    uint16_t ble_adv_dup_filt_max;          /*!< maximum number of duplicate scan filter */
     bool coex_param_en;                     /*!< deprecated */
     uint8_t ce_len_type;                    /*!< connection event length computation method */
     bool coex_use_hooks;                    /*!< deprecated */
@@ -312,7 +403,16 @@ typedef struct {
     uint16_t dup_list_refresh_period;       /*!< duplicate scan list refresh time */
     bool ble_50_feat_supp;                  /*!< BLE 5.0 feature support */
     uint8_t ble_cca_mode;                   /*!< BLE CCA mode */
-    uint8_t ble_data_lenth_zero_aux;        /*!< Config ext adv aux option*/
+    uint8_t ble_data_lenth_zero_aux;        /*!< Config ext adv aux option */
+    uint8_t ble_chan_ass_en;                /*!< BLE channel assessment enable */
+    uint8_t ble_ping_en;                    /*!< BLE ping procedure enable */
+    uint8_t ble_llcp_disc_flag;             /*!< BLE disconnect flag when instant passed */
+    bool run_in_flash;                      /*!< Check if controller code is in flash */
+    bool dtm_en;                            /*!< Controller DTM feature is enabled or not */
+    bool enc_en;                            /*!< Controller encryption feature is enabled or not */
+    bool qa_test;                           /*!< Controller QA test feature is enabled or not */
+    bool master_en;                         /*!< Controller master feature is enabled or not */
+    bool scan_en;                           /*!< Controller scan feature is enabled or not */
 } esp_bt_controller_config_t;
 
 /**
@@ -360,19 +460,32 @@ typedef enum {
     ESP_PWR_LVL_N18 = 2,              /*!< Corresponding to -18dbm */
     ESP_PWR_LVL_N15 = 3,              /*!< Corresponding to -15dbm */
     ESP_PWR_LVL_N12 = 4,              /*!< Corresponding to -12dbm */
-    ESP_PWR_LVL_N9  = 5,              /*!< Corresponding to  -9dbm */
-    ESP_PWR_LVL_N6  = 6,              /*!< Corresponding to  -6dbm */
-    ESP_PWR_LVL_N3  = 7,              /*!< Corresponding to  -3dbm */
-    ESP_PWR_LVL_N0  = 8,              /*!< Corresponding to   0dbm */
-    ESP_PWR_LVL_P3  = 9,              /*!< Corresponding to  +3dbm */
-    ESP_PWR_LVL_P6  = 10,             /*!< Corresponding to  +6dbm */
-    ESP_PWR_LVL_P9  = 11,             /*!< Corresponding to  +9dbm */
-    ESP_PWR_LVL_P12 = 12,             /*!< Corresponding to  +12dbm */
-    ESP_PWR_LVL_P15 = 13,             /*!< Corresponding to  +15dbm */
-    ESP_PWR_LVL_P18 = 14,             /*!< Corresponding to  +18dbm */
-    ESP_PWR_LVL_P21 = 15,             /*!< Corresponding to  +21dbm */
+    ESP_PWR_LVL_N9  = 5,              /*!< Corresponding to -9dbm */
+    ESP_PWR_LVL_N6  = 6,              /*!< Corresponding to -6dbm */
+    ESP_PWR_LVL_N3  = 7,              /*!< Corresponding to -3dbm */
+    ESP_PWR_LVL_N0  = 8,              /*!< Corresponding to 0dbm */
+    ESP_PWR_LVL_P3  = 9,              /*!< Corresponding to +3dbm */
+    ESP_PWR_LVL_P6  = 10,             /*!< Corresponding to +6dbm */
+    ESP_PWR_LVL_P9  = 11,             /*!< Corresponding to +9dbm */
+    ESP_PWR_LVL_P12 = 12,             /*!< Corresponding to +12dbm */
+    ESP_PWR_LVL_P15 = 13,             /*!< Corresponding to +15dbm */
+    ESP_PWR_LVL_P18 = 14,             /*!< Corresponding to +18dbm */
+    ESP_PWR_LVL_P20 = 15,             /*!< Corresponding to +20dbm */
+    ESP_PWR_LVL_P21 = 15,             /*!< Corresponding to +20dbm, this enum variable has been deprecated */
     ESP_PWR_LVL_INVALID = 0xFF,         /*!< Indicates an invalid value */
 } esp_power_level_t;
+
+/**
+ * @brief The enhanced type of which tx power, could set Advertising/Connection/Default and etc.
+ */
+typedef enum {
+    ESP_BLE_ENHANCED_PWR_TYPE_DEFAULT = 0,
+    ESP_BLE_ENHANCED_PWR_TYPE_ADV,
+    ESP_BLE_ENHANCED_PWR_TYPE_SCAN,
+    ESP_BLE_ENHANCED_PWR_TYPE_INIT,
+    ESP_BLE_ENHANCED_PWR_TYPE_CONN,
+    ESP_BLE_ENHANCED_PWR_TYPE_MAX,
+} esp_ble_enhanced_power_type_t;
 
 /**
  * @brief  Set BLE TX power
@@ -390,6 +503,25 @@ esp_err_t esp_ble_tx_power_set(esp_ble_power_type_t power_type, esp_power_level_
  * @return             >= 0 - Power level, < 0 - Invalid
  */
 esp_power_level_t esp_ble_tx_power_get(esp_ble_power_type_t power_type);
+
+/**
+ * @brief  ENHANCED API for Setting BLE TX power
+ *         Connection Tx power should only be set after connection created.
+ * @param  power_type : The enhanced type of which tx power, could set Advertising/Connection/Default and etc.
+ * @param  handle : The handle of Advertising or Connection and the value 0 for other enhanced power types.
+ * @param  power_level: Power level(index) corresponding to absolute value(dbm)
+ * @return              ESP_OK - success, other - failed
+ */
+esp_err_t esp_ble_tx_power_set_enhanced(esp_ble_enhanced_power_type_t power_type, uint16_t handle, esp_power_level_t power_level);
+
+/**
+ * @brief  ENHANCED API of Getting BLE TX power
+ *         Connection Tx power should only be get after connection created.
+ * @param  power_type : The enhanced type of which tx power, could set Advertising/Connection/Default and etc
+ * @param  handle : The handle of Advertising or Connection and the value 0 for other enhanced power types.
+ * @return             >= 0 - Power level, < 0 - Invalid
+ */
+esp_power_level_t esp_ble_tx_power_get_enhanced(esp_ble_enhanced_power_type_t power_type, uint16_t handle);
 
 /**
  * @brief       Initialize BT controller to allocate task and other resource.
@@ -599,6 +731,15 @@ void esp_wifi_bt_power_domain_on(void);
  * @brief bt Wi-Fi power domain power off
  */
 void esp_wifi_bt_power_domain_off(void);
+
+/**
+ * @brief Get the Bluetooth module sleep clock source.
+ *
+ * Note that this function shall not be invoked before esp_bt_controller_init()
+ *
+ * @return  clock source used in Bluetooth low power mode
+ */
+esp_bt_sleep_clock_t esp_bt_get_lpclk_src(void);
 
 #ifdef __cplusplus
 }

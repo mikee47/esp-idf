@@ -20,6 +20,8 @@
 #include "hal/efuse_ll.h"
 #include "hal/efuse_hal.h"
 #include "esp_hw_log.h"
+#include "soc/regi2c_bias.h"
+#include "regi2c_ctrl.h"
 
 static __attribute__((unused)) const char *TAG = "pmu_sleep";
 
@@ -164,6 +166,9 @@ const pmu_sleep_config_t* pmu_sleep_config_default(
             analog_default.lp_sys[LP(SLEEP)].analog.pd_cur = PMU_PD_CUR_SLEEP_ON;
             analog_default.lp_sys[LP(SLEEP)].analog.bias_sleep = PMU_BIASSLP_SLEEP_ON;
             analog_default.lp_sys[LP(SLEEP)].analog.dbias = get_act_lp_dbias();
+        } else if (!(pd_flags & PMU_SLEEP_PD_RC_FAST)) {
+            analog_default.hp_sys.analog.dbias = get_act_hp_dbias();
+            analog_default.lp_sys[LP(SLEEP)].analog.dbias = get_act_lp_dbias();
         }
         config->analog = analog_default;
     }
@@ -260,6 +265,8 @@ uint32_t pmu_sleep_start(uint32_t wakeup_opt, uint32_t reject_opt, uint32_t lslp
 
 bool pmu_sleep_finish(void)
 {
+    // Restore registers lost during sleep
+    REGI2C_WRITE_MASK(I2C_BIAS, I2C_BIAS_DREG_0P8, 8);  // fix low temp issue, need to increase this internal voltage
     return pmu_ll_hp_is_sleep_reject(PMU_instance()->hal->dev);
 }
 

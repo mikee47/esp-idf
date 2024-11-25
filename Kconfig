@@ -496,6 +496,15 @@ mainmenu "Espressif IoT Development Framework Configuration"
             help
                 Stack smashing protection.
 
+        config COMPILER_NO_MERGE_CONSTANTS
+            bool "Disable merging const sections"
+            depends on IDF_TOOLCHAIN_GCC
+            help
+                Disable merging identical constants (string/floating-point) across compilation units.
+                This helps in better size analysis of the application binary as the rodata section
+                distribution is more uniform across libraries. On downside, it may increase
+                the binary size and hence should be used during development phase only.
+
         config COMPILER_WARN_WRITE_STRINGS
             bool "Enable -Wwrite-strings warning flag"
             default "n"
@@ -570,6 +579,27 @@ mainmenu "Espressif IoT Development Framework Configuration"
             default "gcc" if COMPILER_RT_LIB_GCCLIB
             default "" if COMPILER_RT_LIB_HOST
 
+        choice COMPILER_ORPHAN_SECTIONS
+            prompt "Orphan sections handling"
+            default COMPILER_ORPHAN_SECTIONS_PLACE
+            depends on !IDF_TARGET_LINUX
+            help
+                If the linker finds orphan sections, it attempts to place orphan sections after sections of the same
+                attribute such as code vs data, loadable vs non-loadable, etc.
+                That means that orphan sections could placed between sections defined in IDF linker scripts.
+                This could lead to corruption of the binary image. Configure the linker action here.
+
+            config COMPILER_ORPHAN_SECTIONS_WARNING
+                bool "Place with warning"
+                help
+                    Places orphan sections with a warning message.
+
+            config COMPILER_ORPHAN_SECTIONS_PLACE
+                bool "Place silently"
+                help
+                    Places orphan sections without a warning/error message.
+        endchoice
+
     endmenu # Compiler Options
 
     menu "Component config"
@@ -590,4 +620,3 @@ mainmenu "Espressif IoT Development Framework Configuration"
             - CONFIG_ESPTOOLPY_FLASHFREQ_120M && CONFIG_ESPTOOLPY_FLASH_SAMPLE_MODE_DTR
             - CONFIG_SPIRAM_SPEED_120M && CONFIG_SPIRAM_MODE_OCT
             - CONFIG_BOOTLOADER_CACHE_32BIT_ADDR_QUAD_FLASH
-            - CONFIG_MBEDTLS_USE_CRYPTO_ROM_IMPL

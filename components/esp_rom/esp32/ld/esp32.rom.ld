@@ -1368,6 +1368,7 @@ PROVIDE ( esp_rom_spiflash_config_clk = 0x40062bc8 );
 PROVIDE ( g_rom_spiflash_chip = 0x3ffae270 );
 PROVIDE ( SPI_write_enable = 0x40062320 );
 PROVIDE ( hci_le_rd_rem_used_feats_cmd_handler = 0x400417b4 );
+PROVIDE ( hci_per_inq_mode_cmd_handler = 0x400519b0 );
 PROVIDE ( llcp_length_req_handler = 0x40043808 );
 PROVIDE ( llcp_unknown_rsp_handler = 0x40043ba8 );
 PROVIDE ( llcp_channel_map_req_handler = 0x4004291c );
@@ -1474,7 +1475,7 @@ PROVIDE ( uart_tx_switch = 0x40009028 );
 
 /*
 These functions are part of the ROM GPIO driver. We do not use them; the provided esp-idf functions
-replace them and this way we can re-use the fixed RAM addresses these routines need.
+replace them and this way we can reuse the fixed RAM addresses these routines need.
 */
 /* <-- So you don't read over it: This comment disables the next lines.
 PROVIDE ( gpio_init = 0x40009c20 );
@@ -1623,6 +1624,7 @@ PROVIDE ( ld_acl_sniff_trans_sched = 0x40033734 );
 PROVIDE ( lc_pwr_decr_ind_handler = 0x4002859c );
 PROVIDE ( lc_pwr_incr_ind_handler = 0x400284a8 );
 PROVIDE ( lc_pwr_max_ind_handler = 0x40028690 );
+PROVIDE ( lc_setup_sync_param_check = 0x4002354c );
 
 PROVIDE ( lm_sync_conf = 0x3ffb8348 );
 PROVIDE ( lm_nb_sync_active = 0x3ffb8346 );

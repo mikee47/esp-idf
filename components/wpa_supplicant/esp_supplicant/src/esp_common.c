@@ -406,7 +406,7 @@ void esp_supplicant_common_deinit(void)
 			s_supplicant_evt_queue = NULL;
 		}
 		if (s_supplicant_api_lock) {
-			os_semphr_delete(s_supplicant_api_lock);
+			os_mutex_delete(s_supplicant_api_lock);
 			s_supplicant_api_lock = NULL;
 		}
 	} else if (esp_supplicant_post_evt(SIG_SUPPLICANT_DEL_TASK, 0) != 0) {
@@ -797,7 +797,7 @@ int wpa_drv_send_action(struct wpa_supplicant *wpa_s,
 	}
 
 	req->ifx = WIFI_IF_STA;
-	req->subtype = WLAN_FC_STYPE_ACTION;
+	req->subtype = (WLAN_FC_STYPE_ACTION << 4);
 	req->data_len = data_len;
 	os_memcpy(req->data, data, req->data_len);
 

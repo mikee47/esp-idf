@@ -66,7 +66,7 @@ config BT_A2DP_ENABLE
     depends on BT_CLASSIC_ENABLED
     default n
     help
-        Advanced Audio Distrubution Profile
+        Advanced Audio Distribution Profile
 
 config BT_SPP_ENABLED
     bool "SPP"
@@ -121,7 +121,7 @@ config BT_HFP_WBS_ENABLE
     default y
     help
         This enables Wide Band Speech. Should disable it when SCO data path is PCM.
-        Otherwise there will be no data transmited via GPIOs.
+        Otherwise there will be no data transmitted via GPIOs.
 
 
 menuconfig BT_HID_ENABLED
@@ -292,6 +292,17 @@ config BT_SMP_SLAVE_CON_PARAMS_UPD_ENABLE
     help
         In order to reduce the pairing time, slave actively initiates connection parameters
         update during pairing.
+
+config BT_BLE_SMP_ID_RESET_ENABLE
+    bool "Reset device identity when all bonding records are deleted"
+    depends on BT_BLE_SMP_ENABLE
+    default n
+    help
+        There are tracking risks associated with using a fixed or static IRK.
+        If enabled this option, Bluedroid will assign a new randomly-generated IRK
+        when all pairing and bonding records are deleted. This would decrease the ability
+        of a previously paired peer to be used to determine whether a device
+        with which it previously shared an IRK is within range.
 
 config BT_STACK_NO_LOG
     bool "Disable BT debug logs (minimize bin size)"
@@ -1053,7 +1064,7 @@ config BT_ACL_CONNECTIONS
         is used.
 
 config BT_MULTI_CONNECTION_ENBALE
-    bool "Enable BLE multi-conections"
+    bool "Enable BLE multi-connections"
     depends on BT_BLE_ENABLED
     default y
     help
@@ -1193,3 +1204,10 @@ config BT_BLE_HIGH_DUTY_ADV_INTERVAL
     default n
     help
         This enable BLE high duty advertising interval feature
+
+config BT_ABORT_WHEN_ALLOCATION_FAILS
+    bool "Abort when memory allocation fails in BT/BLE stack"
+    depends on BT_BLUEDROID_ENABLED
+    default n
+    help
+        This enables abort when memory allocation fails

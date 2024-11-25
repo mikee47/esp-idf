@@ -2136,7 +2136,7 @@ Wi-Fi Sniffer 模式可以通过 :cpp:func:`esp_wifi_set_promiscuous()` 使能�
 
  - 802.11 其它错误帧
 
-对于 Sniffer 模式 **可以** 转储的帧，应用程序可以另外使用 :cpp:func:`esp_wifi_set_promiscuous_filter()` 和 :cpp:func:`esp_wifi_set_promiscuous_ctrl_filter()` 决定筛选哪些特定类型的数据包。应用程序默认筛选所有 802.11 数据和管理帧。
+对于 Sniffer 模式 **可以** 转储的帧，应用程序可以另外使用 :cpp:func:`esp_wifi_set_promiscuous_filter()` 和 :cpp:func:`esp_wifi_set_promiscuous_ctrl_filter()` 决定筛选哪些特定类型的数据包。应用程序默认筛选所有 802.11 数据和管理帧。如果你想要筛选 802.11 控制帧，:cpp:func:`esp_wifi_set_promiscuous_filter()` 中的 filter 参数需要包含 “WIFI_PROMIS_FILTER_MASK_CTRL” 类型， 如果你想进一步区分 802.11 控制帧，那么调用 :cpp:func:`esp_wifi_set_promiscuous_ctrl_filter()`。
 
 可以在 WIFI_MODE_NULL、WIFI_MODE_STA、WIFI_MODE_AP、WIFI_MODE_APSTA 等 Wi-Fi 模式下使能 Wi-Fi Sniffer 模式。也就是说，当 station 连接到 AP，或者 AP 有 Wi-Fi 连接时，就可以使能。请注意，Sniffer 模式对 station/AP Wi-Fi 连接的吞吐量有 **很大影响**。通常，除非有特别原因，当 station/AP Wi-Fi 连接出现大量流量，不应使能。
 
@@ -2592,29 +2592,29 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 12
           - 8
         * - WIFI_IRAM_OPT
-          - 15
-          - 15
-          - 15
-          - 15
-          - 15
-          - 15
-          - 15
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
         * - WIFI_RX_IRAM_OPT
-          - 16
-          - 16
-          - 16
-          - 16
-          - 16
-          - 16
-          - 16
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 13
-          - 13
-          - 13
-          - 13
-          - 13
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 开启
         * - TCP 发送数据吞吐量 (Mbit/s)
           - 74.6
           - 50.8
@@ -2704,23 +2704,23 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 8
           - 6
         * - WIFI_IRAM_OPT
-          - 15
-          - 15
-          - 15
-          - 15
-          - 0
+          - 开启
+          - 开启
+          - 开启
+          - 开启
+          - 关闭
         * - WIFI_RX_IRAM_OPT
-          - 16
-          - 16
-          - 16
-          - 0
-          - 0
+          - 开启
+          - 开启
+          - 开启
+          - 关闭
+          - 关闭
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 0
-          - 0
-          - 0
+          - 开启
+          - 开启
+          - 关闭
+          - 关闭
+          - 关闭
         * - INSTRUCTION_CACHE
           - 16
           - 16
@@ -2797,9 +2797,9 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 16
           - 6
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 0
+          - 开启
+          - 开启
+          - 关闭
         * - TCP 发送数据吞吐量 (Mbit/s)
           - 38.1
           - 27.2
@@ -2856,9 +2856,9 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 16
           - 6
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 0
+          - 开启
+          - 开启
+          - 关闭
         * - TCP 发送数据吞吐量 (Mbit/s)
           - 30.5
           - 25.9
@@ -2915,9 +2915,9 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 14
           - 6
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 0
+          - 开启
+          - 开启
+          - 关闭
         * - TCP 发送数据吞吐量 (Mbit/s)
           - 21.6
           - 21.4
@@ -2974,17 +2974,17 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
           - 32
           - 6
         * - WIFI_IRAM_OPT
-          - 15
-          - 15
-          - 15
+          - 开启
+          - 开启
+          - 开启
         * - WIFI_RX_IRAM_OPT
-          - 16
-          - 16
-          - 16
+          - 开启
+          - 开启
+          - 开启
         * - LWIP_IRAM_OPTIMIZATION
-          - 13
-          - 13
-          - 0
+          - 开启
+          - 开启
+          - 关闭
         * - INSTRUCTION_CACHE
           - 32
           - 32
@@ -3150,20 +3150,20 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
                - 65
                - 65
              * - WIFI_IRAM_OPT
-               - 15
-               - 15
-               - 15
-               - 0
+               - 开启
+               - 开启
+               - 开启
+               - 关闭
              * - WIFI_RX_IRAM_OPT
-               - 16
-               - 16
-               - 0
-               - 0
+               - 开启
+               - 开启
+               - 关闭
+               - 关闭
              * - LWIP_IRAM_OPTIMIZATION
-               - 13
-               - 0
-               - 0
-               - 0
+               - 开启
+               - 关闭
+               - 关闭
+               - 关闭
              * - TCP 发送数据吞吐量 (Mbit/s)
                - 37.5
                - 31.7
@@ -3232,20 +3232,20 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
                - 32
                - 32
              * - WIFI_IRAM_OPT
-               - 15
-               - 15
-               - 15
-               - 0
+               - 开启
+               - 开启
+               - 开启
+               - 关闭
              * - WIFI_RX_IRAM_OPT
-               - 16
-               - 16
-               - 0
-               - 0
+               - 开启
+               - 开启
+               - 关闭
+               - 关闭
              * - LWIP_IRAM_OPTIMIZATION
-               - 13
-               - 0
-               - 0
-               - 0
+               - 开启
+               - 关闭
+               - 关闭
+               - 关闭
              * - INSTRUCTION_CACHE
                - 16
                - 16
@@ -3339,20 +3339,20 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
                - 32
                - 32
              * - WIFI_IRAM_OPT
-               - 15
-               - 15
-               - 15
-               - 0
+               - 开启
+               - 开启
+               - 开启
+               - 关闭
              * - WIFI_RX_IRAM_OPT
-               - 16
-               - 16
-               - 0
-               - 0
+               - 开启
+               - 开启
+               - 关闭
+               - 关闭
              * - LWIP_IRAM_OPTIMIZATION
-               - 13
-               - 0
-               - 0
-               - 0
+               - 开启
+               - 关闭
+               - 关闭
+               - 关闭
              * - LWIP_UDP_RECVMBOX_SIZE
                - 16
                - 16
@@ -3456,20 +3456,20 @@ Wi-Fi 使用的堆内存峰值是 Wi-Fi 驱动程序 **理论上消耗的最大�
                - 32
                - 32
              * - WIFI_IRAM_OPT
-               - 15
-               - 15
-               - 15
-               - 0
+               - 开启
+               - 开启
+               - 开启
+               - 关闭
              * - WIFI_RX_IRAM_OPT
-               - 16
-               - 16
-               - 0
-               - 0
+               - 开启
+               - 开启
+               - 关闭
+               - 关闭
              * - LWIP_IRAM_OPTIMIZATION
-               - 13
-               - 0
-               - 0
-               - 0
+               - 开启
+               - 关闭
+               - 关闭
+               - 关闭
              * - LWIP_UDP_RECVMBOX_SIZE
                - 16
                - 16

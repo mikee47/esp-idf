@@ -1,7 +1,7 @@
 .build_template:
   stage: build
   extends:
-    - .after_script:build:ccache
+    - .after_script:build:ccache-show-stats
   image: $ESP_ENV_IMAGE
   tags:
     - build
@@ -16,7 +16,7 @@
   extends:
     - .build_template
     - .before_script:build
-    - .after_script:build:ccache
+    - .after_script:build:ccache-show-stats
   dependencies: # set dependencies to null to avoid missing artifacts issue
   needs:
     - job: fast_template_app
@@ -517,8 +517,12 @@ build_clang_test_apps_esp32c6:
     - ${IDF_PATH}/tools/ci/test_configure_ci_environment.sh
     - cd ${IDF_PATH}/tools/test_build_system
     - python ${IDF_PATH}/tools/ci/get_known_failure_cases_file.py
-    - pytest --parallel-count ${CI_NODE_TOTAL:-1} --parallel-index ${CI_NODE_INDEX:-1}
-      --work-dir ${CI_PROJECT_DIR}/test_build_system --junitxml=${CI_PROJECT_DIR}/XUNIT_RESULT.xml
+    - pytest
+      --cleanup-idf-copy
+      --parallel-count ${CI_NODE_TOTAL:-1}
+      --parallel-index ${CI_NODE_INDEX:-1}
+      --work-dir ${CI_PROJECT_DIR}/test_build_system
+      --junitxml ${CI_PROJECT_DIR}/XUNIT_RESULT.xml
       --ignore-result-files ${KNOWN_FAILURE_CASES_FILE_NAME}
 
 pytest_build_system:
@@ -537,6 +541,7 @@ pytest_build_system_macos:
   extends:
     - .test_build_system_template
     - .before_script:build:macos
+    - .after_script:build:macos:upload-failed-job-logs:ccache-show-stats
     - .rules:build:macos
   tags:
     - macos_shell
@@ -549,7 +554,11 @@ pytest_build_system_macos:
     expire_in: 2 days
     reports:
       junit: XUNIT_RESULT.xml
-
+  variables:
+    PYENV_VERSION: "3.8"
+    # CCACHE_DIR: "/cache/idf_ccache". On macOS, you cannot write to this folder due to insufficient permissions.
+    CCACHE_DIR: "" # ccache will use "$HOME/Library/Caches/ccache".
+    CCACHE_MAXSIZE: "5G" # To preserve the limited Macbook storage. CCACHE automatically prunes old caches to fit the set limit.
 build_docker:
   extends:
     - .before_script:minimal
