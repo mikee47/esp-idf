@@ -1,6 +1,8 @@
 [mapping:lwip]
 archive: liblwip.a
 entries:
+  tcpip:tcpip_callbackmsg_trycallback_fromisr (noflash_text)
+  sys_arch:sys_mbox_trypost_fromisr (noflash_text)
   if LWIP_IRAM_OPTIMIZATION = y:
     sockets:get_socket (noflash_text)
     sockets:tryget_socket_unconn_locked (noflash_text)
